@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { FiberType } from '../src/types'
 import {
   getDisplayNameForInstance,
+  getPathToSource,
   getPathToSourceSafely,
   getPropsForInstance,
 } from '../src/utils'
@@ -66,5 +67,51 @@ describe('local error capture', () => {
     expect(getPropsForInstance({ memoizedProps: props })).toEqual({
       valid: 'yes',
     })
+  })
+})
+
+describe('getPathToSource', () => {
+  it('resolves browser-root paths against an explicit project root', () => {
+    expect(
+      getPathToSource(
+        {
+          fileName: '/src/App.tsx',
+          lineNumber: 5,
+          columnNumber: 19,
+          projectRelative: true,
+        },
+        undefined,
+        '/Users/me/project',
+      ),
+    ).toBe('/Users/me/project/src/App.tsx:5:19')
+  })
+
+  it('does not prefix an absolute filesystem source', () => {
+    expect(
+      getPathToSource(
+        {
+          fileName: '/Users/me/project/src/App.tsx',
+          lineNumber: 5,
+          columnNumber: 19,
+        },
+        undefined,
+        '/Users/me/project',
+      ),
+    ).toBe('/Users/me/project/src/App.tsx:5:19')
+  })
+
+  it('normalizes Windows project roots for editor URLs', () => {
+    expect(
+      getPathToSource(
+        {
+          fileName: '/src/App.tsx',
+          lineNumber: 5,
+          columnNumber: 19,
+          projectRelative: true,
+        },
+        undefined,
+        'C:\\code\\project',
+      ),
+    ).toBe('C:/code/project/src/App.tsx:5:19')
   })
 })

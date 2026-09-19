@@ -159,18 +159,19 @@ export function parseDebugStack(
     const [, rawFileName, rawLine, rawColumn] = match
     if (!rawFileName || isReactInternalFrame(rawFileName)) continue
 
-    let fileName: string | undefined
+    let normalizedFile: NormalizedStackFile | undefined
     try {
-      fileName = normalizeStackFileName(rawFileName)
+      normalizedFile = normalizeStackFileName(rawFileName)
     } catch {
       continue
     }
-    if (!fileName) continue
+    if (!normalizedFile) continue
 
     return {
-      fileName,
+      fileName: normalizedFile.fileName,
       lineNumber: normalizePosition(Number(rawLine)),
       columnNumber: normalizePosition(Number(rawColumn)),
+      ...(normalizedFile.projectRelative ? { projectRelative: true } : {}),
     }
   }
 }
@@ -187,8 +188,16 @@ function normalizeSource(
   }
 }
 
-function normalizeStackFileName(rawFileName: string): string | undefined {
+interface NormalizedStackFile {
+  fileName: string
+  projectRelative: boolean
+}
+
+function normalizeStackFileName(
+  rawFileName: string,
+): NormalizedStackFile | undefined {
   let fileName = rawFileName.replace(/^\(/, '')
+  let projectRelative = false
 
   try {
     fileName = decodeURIComponent(fileName)
@@ -200,15 +209,20 @@ function normalizeStackFileName(rawFileName: string): string | undefined {
     fileName = fileName.slice('file://'.length)
   } else if (/^https?:\/\//.test(fileName)) {
     const url = new URL(fileName)
+    const isFileSystemPath = url.pathname.startsWith('/@fs/')
     fileName = url.pathname.replace(/^\/@fs\//, '/')
+    projectRelative = !isFileSystemPath
   } else if (fileName.startsWith('webpack-internal://')) {
     fileName = fileName
       .replace(/^webpack-internal:\/\/\/(?:\([^)]*\)\/)?/, '')
       .replace(/^\.\//, '')
+    projectRelative = true
   }
 
   fileName = fileName.replace(/[?#].*$/, '')
-  return fileName && fileName !== '<anonymous>' ? fileName : undefined
+  return fileName && fileName !== '<anonymous>'
+    ? { fileName, projectRelative }
+    : undefined
 }
 
 function isReactInternalFrame(fileName: string): boolean {

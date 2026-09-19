@@ -96,6 +96,20 @@ describe('parseDebugStack', () => {
       fileName: 'app/page.tsx',
       lineNumber: 20,
       columnNumber: 11,
+      projectRelative: true,
+    })
+  })
+
+  it('marks Vite root URLs as project-relative', () => {
+    expect(
+      parseDebugStack(
+        'Error\n    at App (http://localhost:5173/src/App.tsx:5:19)',
+      ),
+    ).toEqual({
+      fileName: '/src/App.tsx',
+      lineNumber: 5,
+      columnNumber: 19,
+      projectRelative: true,
     })
   })
 

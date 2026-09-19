@@ -10,6 +10,7 @@ type Mode = 'idle' | 'hover' | 'select'
 export function ClickToCode({
   editor = 'vscode',
   pathModifier,
+  projectRoot,
 }: ClickToCodeProps) {
   const [mode, setMode] = useState<Mode>('idle')
   const [target, setTarget] = useState<Element | null>(null)
@@ -39,7 +40,7 @@ export function ClickToCode({
       try {
         const source = getSourceForElement(event.target)
         if (!source) return
-        const path = getPathToSourceSafely(source, pathModifier)
+        const path = getPathToSourceSafely(source, pathModifier, projectRoot)
         if (!path) return
 
         event.preventDefault()
@@ -75,7 +76,7 @@ export function ClickToCode({
       window.removeEventListener('click', onClick, true)
       window.removeEventListener('contextmenu', onContextMenu, true)
     }
-  }, [editor, mode, pathModifier])
+  }, [editor, mode, pathModifier, projectRoot])
 
   useEffect(() => {
     document.body.dataset.clickToComponent = mode
@@ -100,6 +101,7 @@ export function ClickToCode({
         <ContextMenu
           editor={editor}
           {...(pathModifier ? { pathModifier } : {})}
+          {...(projectRoot ? { projectRoot } : {})}
           point={point}
           target={target}
           onClose={closeMenu}

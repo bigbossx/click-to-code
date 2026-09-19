@@ -12,11 +12,13 @@ export interface SourceLocation {
   fileName: string
   lineNumber: number
   columnNumber: number
+  projectRelative?: boolean
 }
 
 export interface ClickToCodeProps {
   editor?: Editor
   pathModifier?: PathModifier
+  projectRoot?: string
 }
 
 export interface ReactFiber {

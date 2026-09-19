@@ -3,21 +3,33 @@ import type { FiberType, PathModifier, ReactFiber, SourceLocation } from './type
 export function getPathToSource(
   source: SourceLocation,
   pathModifier?: PathModifier,
+  projectRoot?: string,
 ): string {
-  const path = `${source.fileName}:${source.lineNumber}:${source.columnNumber}`
+  const fileName =
+    projectRoot && source.projectRelative
+      ? joinProjectPath(projectRoot, source.fileName)
+      : source.fileName
+  const path = `${fileName}:${source.lineNumber}:${source.columnNumber}`
   return pathModifier ? pathModifier(path) : path
 }
 
 export function getPathToSourceSafely(
   source: SourceLocation,
   pathModifier?: PathModifier,
+  projectRoot?: string,
 ): string | undefined {
   try {
-    const path = getPathToSource(source, pathModifier)
+    const path = getPathToSource(source, pathModifier, projectRoot)
     return typeof path === 'string' && path ? path : undefined
   } catch {
     return
   }
+}
+
+function joinProjectPath(projectRoot: string, fileName: string): string {
+  const root = projectRoot.replace(/\\/g, '/').replace(/\/+$/, '')
+  const relativeFile = fileName.replace(/\\/g, '/').replace(/^\.?(?:\/|$)/, '')
+  return `${root}/${relativeFile}`
 }
 
 export function getUrl(editor: string, pathToSource: string): string {

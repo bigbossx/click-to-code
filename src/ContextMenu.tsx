@@ -13,6 +13,7 @@ import {
 interface ContextMenuProps {
   editor: Editor
   pathModifier?: PathModifier
+  projectRoot?: string
   point: { x: number; y: number }
   target: Element
   onClose: () => void
@@ -21,6 +22,7 @@ interface ContextMenuProps {
 export function ContextMenu({
   editor,
   pathModifier,
+  projectRoot,
   point,
   target,
   onClose,
@@ -33,7 +35,11 @@ export function ContextMenu({
           const source = getSourceForInstance(fiber)
           if (!source) return []
 
-          const path = getPathToSourceSafely(source, pathModifier)
+          const path = getPathToSourceSafely(
+            source,
+            pathModifier,
+            projectRoot,
+          )
           if (!path) return []
 
           return [
@@ -49,7 +55,7 @@ export function ContextMenu({
           return []
         }
       }),
-    [pathModifier, target],
+    [pathModifier, projectRoot, target],
   )
 
   useEffect(() => {
