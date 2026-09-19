@@ -2,15 +2,15 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { ContextMenu } from './ContextMenu'
 import { getSourceForElement } from './reactFiber'
-import type { ClickToComponentProps } from './types'
+import type { ClickToCodeProps } from './types'
 import { getPathToSourceSafely, getUrl } from './utils'
 
 type Mode = 'idle' | 'hover' | 'select'
 
-export function ClickToComponent({
+export function ClickToCode({
   editor = 'vscode',
   pathModifier,
-}: ClickToComponentProps) {
+}: ClickToCodeProps) {
   const [mode, setMode] = useState<Mode>('idle')
   const [target, setTarget] = useState<Element | null>(null)
   const [point, setPoint] = useState({ x: 0, y: 0 })

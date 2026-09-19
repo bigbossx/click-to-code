@@ -1,4 +1,4 @@
-# Click to React Component
+# click-to-code
 
 开发环境中的 React 组件定位工具。按住 <kbd>Alt/Option</kbd> 点击页面元素，
 即可在编辑器中打开对应源码；按住 <kbd>Alt/Option</kbd> 右键，可以从组件祖先列表中选择。
@@ -25,91 +25,77 @@ React 和 React DOM 由宿主项目提供，支持版本为 `>=18 <20`。
 
 ## Vite：推荐接入方式
 
-Vite 的开发环境常量是大写的 `import.meta.env.DEV`，不是
-`import.meta.env.dev`。
-
-使用构建期条件和动态 `import()`，可以让生产构建直接删除整个依赖，
-而不只是渲染一个返回 `null` 的组件。
-
-创建 `src/DevClickToComponent.tsx`：
+不需要使用 `lazy`。Vite 会在生产构建中把 `import.meta.env.DEV` 静态替换为
+`false`，随后移除不可达的 JSX 和未使用 import。包本身也声明了
+`sideEffects: false`，因此下面的静态导入可以被完整 tree-shake：
 
 ```tsx
-import { lazy, Suspense } from 'react'
-import type { ClickToComponentProps } from 'click-to-code'
-
-const DevelopmentInspector = import.meta.env.DEV
-  ? lazy(async () => {
-      const module = await import('click-to-code')
-      return { default: module.ClickToComponent }
-    })
-  : null
-
-export function DevClickToComponent(props: ClickToComponentProps) {
-  if (!DevelopmentInspector) return null
-
-  return (
-    <Suspense fallback={null}>
-      <DevelopmentInspector {...props} />
-    </Suspense>
-  )
-}
-```
-
-然后在应用根节点挂载一次：
-
-```tsx
-import { DevClickToComponent } from './DevClickToComponent'
+import { ClickToCode } from 'click-to-code'
 
 export function App() {
   return (
     <>
-      <DevClickToComponent editor="cursor" />
+      {import.meta.env.DEV && <ClickToCode editor="cursor" />}
       <main>{/* application */}</main>
     </>
   )
 }
 ```
 
-生产构建时，`import.meta.env.DEV` 会被替换为 `false`，动态导入分支会被
-dead-code elimination 移除，因此不会生成 inspector 的生产 chunk。
+注意 Vite 的内置常量是大写的 `import.meta.env.DEV`，不是
+`import.meta.env.dev`。
+
+### 可选：开发环境异步加载
+
+只有在希望 inspector 不进入开发环境的初始 chunk 时，才需要 `lazy` 和动态导入：
+
+```tsx
+import { lazy, Suspense } from 'react'
+
+const ClickToCode = import.meta.env.DEV
+  ? lazy(async () => {
+      const module = await import('click-to-code')
+      return { default: module.ClickToCode }
+    })
+  : null
+
+export function DevTools() {
+  return ClickToCode ? (
+    <Suspense fallback={null}>
+      <ClickToCode editor="cursor" />
+    </Suspense>
+  ) : null
+}
+```
+
+这个方案的区别只是开发环境代码分包，不是生产 tree-shaking 的必要条件。
 
 ## Next.js
 
-App Router 项目可以创建一个只在客户端运行的开发组件：
+App Router 中建议创建一个 Client Component：
 
 ```tsx
 'use client'
 
-import dynamic from 'next/dynamic'
-import type { ClickToComponentProps } from 'click-to-code'
+import { ClickToCode } from 'click-to-code'
+import type { ClickToCodeProps } from 'click-to-code'
 
-const DevelopmentInspector =
-  process.env.NODE_ENV === 'development'
-    ? dynamic(
-        () =>
-          import('click-to-code').then(
-            (module) => module.ClickToComponent,
-          ),
-        { ssr: false },
-      )
-    : null
-
-export function DevClickToComponent(props: ClickToComponentProps) {
-  if (!DevelopmentInspector) return null
-  return <DevelopmentInspector {...props} />
+export function DevClickToCode(props: ClickToCodeProps) {
+  if (process.env.NODE_ENV !== 'development') return null
+  return <ClickToCode {...props} />
 }
 ```
 
-在根布局中挂载：
+然后在根布局中挂载一次：
 
 ```tsx
-import { DevClickToComponent } from './DevClickToComponent'
+import { DevClickToCode } from './DevClickToCode'
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
       <body>
-        <DevClickToComponent editor="cursor" />
+        <DevClickToCode editor="cursor" />
         {children}
       </body>
     </html>
@@ -117,55 +103,41 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 ```
 
-Pages Router 也可以使用相同的包装组件，在 `pages/_app.tsx` 中挂载一次。
-
-## webpack 和其他构建工具
-
-使用构建工具能够静态替换的开发环境常量包裹动态导入：
+Pages Router 可以直接在 `pages/_app.tsx` 中使用：
 
 ```tsx
-import { lazy, Suspense } from 'react'
-import type { ClickToComponentProps } from 'click-to-code'
+import { ClickToCode } from 'click-to-code'
+import type { AppProps } from 'next/app'
 
-const DevelopmentInspector =
-  process.env.NODE_ENV === 'development'
-    ? lazy(async () => {
-        const module = await import('click-to-code')
-        return { default: module.ClickToComponent }
-      })
-    : null
-
-export function DevClickToComponent(props: ClickToComponentProps) {
-  return DevelopmentInspector ? (
-    <Suspense fallback={null}>
-      <DevelopmentInspector {...props} />
-    </Suspense>
-  ) : null
+export default function App({ Component, pageProps }: AppProps) {
+  return (
+    <>
+      {process.env.NODE_ENV === 'development' && <ClickToCode editor="cursor" />}
+      <Component {...pageProps} />
+    </>
+  )
 }
 ```
 
-需要确保生产配置会把 `process.env.NODE_ENV` 静态替换为
-`"production"`，并开启 tree shaking/minification。
+## webpack 和其他构建工具
 
-## 简单接入方式
-
-如果不要求从生产产物中彻底删除这个包，也可以直接静态导入：
+使用构建工具能够静态替换的开发环境常量即可：
 
 ```tsx
-import { ClickToComponent } from 'click-to-code'
+import { ClickToCode } from 'click-to-code'
 
 export function App() {
   return (
     <>
-      <ClickToComponent editor="vscode" />
+      {process.env.NODE_ENV === 'development' && <ClickToCode />}
       <main>{/* application */}</main>
     </>
   )
 }
 ```
 
-包内在 `NODE_ENV=production` 时会让组件返回 `null`。不过，静态导入是否能被
-完整移除取决于宿主构建工具，因此追求生产零冗余时应使用前面的条件动态导入方案。
+生产配置需要把 `process.env.NODE_ENV` 静态替换为 `"production"`，并开启
+tree shaking/minification。如果所用构建工具不能静态替换环境变量，再改用条件动态导入。
 
 ## 使用方式
 
@@ -175,12 +147,12 @@ export function App() {
 
 ### `editor`
 
-默认编辑器是 `vscode`，内置常用值包括：
+默认编辑器是 `vscode`：
 
 ```tsx
-<DevClickToComponent editor="vscode" />
-<DevClickToComponent editor="vscode-insiders" />
-<DevClickToComponent editor="cursor" />
+<ClickToCode editor="vscode" />
+<ClickToCode editor="vscode-insiders" />
+<ClickToCode editor="cursor" />
 ```
 
 也可以传入自定义编辑器 URL scheme，例如 `webstorm`。
@@ -191,7 +163,7 @@ export function App() {
 可以在打开编辑器前转换路径：
 
 ```tsx
-<DevClickToComponent
+<ClickToCode
   editor="cursor"
   pathModifier={(path) =>
     path
@@ -215,9 +187,10 @@ export function App() {
 
 ```ts
 import {
+  ClickToCode,
   getSourceForElement,
   parseDebugStack,
-  type ClickToComponentProps,
+  type ClickToCodeProps,
   type Editor,
   type PathModifier,
   type ReactFiber,
@@ -239,12 +212,13 @@ Fiber、属性或 stack frame 时，该项会被跳过，不会中断宿主应�
 
 ## 检查生产产物
 
-建议在接入后执行一次生产构建，并确认产物中不存在包名：
+接入后建议执行一次生产构建，并检查产物：
 
 ```sh
 npm run build
 grep -R "click-to-code" dist
 ```
 
-Next.js 可以在 `.next/static` 中检查；webpack 项目则检查自己的输出目录。
-如果使用 bundle analyzer，也不应看到 `click-to-code` 的独立 chunk。
+找不到匹配内容即表示包名未进入生产产物。Next.js 可以检查 `.next/static`，
+webpack 项目则检查自己的输出目录；使用 bundle analyzer 时也不应看到
+`click-to-code` 的独立 chunk。

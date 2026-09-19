@@ -14,7 +14,7 @@ export interface SourceLocation {
   columnNumber: number
 }
 
-export interface ClickToComponentProps {
+export interface ClickToCodeProps {
   editor?: Editor
   pathModifier?: PathModifier
 }
@@ -44,6 +44,6 @@ export type FiberType =
   | symbol
   | null
 
-export type ClickToComponentComponent = (
-  props: ClickToComponentProps,
+export type ClickToCodeComponent = (
+  props: ClickToCodeProps,
 ) => ReactElement | null

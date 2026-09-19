@@ -1,18 +1,18 @@
-import { ClickToComponent as DevelopmentClickToComponent } from './ClickToComponent'
-import type { ClickToComponentComponent } from './types'
+import { ClickToCode as DevelopmentClickToCode } from './ClickToCode'
+import type { ClickToCodeComponent } from './types'
 
 declare const process: { env: { NODE_ENV?: string } }
 
-const ProductionClickToComponent: ClickToComponentComponent = () => null
+const ProductionClickToCode: ClickToCodeComponent = () => null
 
-export const ClickToComponent: ClickToComponentComponent =
+export const ClickToCode: ClickToCodeComponent =
   process.env.NODE_ENV === 'production'
-    ? ProductionClickToComponent
-    : DevelopmentClickToComponent
+    ? ProductionClickToCode
+    : DevelopmentClickToCode
 
 export type {
-  ClickToComponentComponent,
-  ClickToComponentProps,
+  ClickToCodeComponent,
+  ClickToCodeProps,
   Editor,
   PathModifier,
   ReactFiber,
