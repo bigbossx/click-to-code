@@ -3,11 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { ContextMenu } from './ContextMenu'
 import { getSourceForElement } from './reactFiber'
 import type { ClickToCodeProps } from './types'
-import {
-  getPathToSourceSafely,
-  openSourceInEditor,
-  warmProjectRootDetection,
-} from './utils'
+import { getPathToSourceSafely, getUrl } from './utils'
 
 type Mode = 'idle' | 'hover' | 'select'
 
@@ -21,10 +17,6 @@ export function ClickToCode({
   const [point, setPoint] = useState({ x: 0, y: 0 })
 
   const closeMenu = useCallback(() => setMode('idle'), [])
-
-  useEffect(() => {
-    if (!projectRoot && !pathModifier) warmProjectRootDetection()
-  }, [pathModifier, projectRoot])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -53,12 +45,7 @@ export function ClickToCode({
 
         event.preventDefault()
         event.stopPropagation()
-        openSourceInEditor(
-          source,
-          path,
-          editor,
-          !projectRoot && !pathModifier,
-        )
+        window.location.assign(getUrl(editor, path))
       } catch {
         // Keep failures in private React data or editor navigation local.
       } finally {

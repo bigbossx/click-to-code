@@ -51,10 +51,32 @@ npm run examples:build
 `false`，随后移除不可达的 JSX 和未使用 import。包本身也声明了
 `sideEffects: false`，因此下面的静态导入可以被完整 tree-shake：
 
-直接在应用根节点挂载，不需要修改 `vite.config.ts`，也不需要传入项目根目录。
-组件挂载后会在后台从 Vite 已转换的入口模块中恢复 workspace root。点击时直接
-跳转 `vscode://`（或配置的编辑器 URL scheme），不会再等待一次打开编辑器请求。
-如果当前 Vite 转换产物不包含路径元数据，才回退到开发服务器接口：
+Vite 对项目根目录内的 stack frame 使用 `/src/...` 形式。为了让编辑器获得本机
+绝对路径，在 `vite.config.ts` 中仅向开发构建注入项目根目录：
+
+```ts
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig(({ command }) => ({
+  plugins: [react()],
+  define: {
+    __CLICK_TO_CODE_PROJECT_ROOT__: JSON.stringify(
+      command === 'serve' ? process.cwd() : '',
+    ),
+  },
+}))
+```
+
+在 `src/vite-env.d.ts` 中声明这个开发常量：
+
+```ts
+/// <reference types="vite/client" />
+
+declare const __CLICK_TO_CODE_PROJECT_ROOT__: string
+```
+
+然后在应用根节点挂载：
 
 ```tsx
 import { ClickToCode } from 'click-to-code'
@@ -62,7 +84,12 @@ import { ClickToCode } from 'click-to-code'
 export function App() {
   return (
     <>
-      {import.meta.env.DEV && <ClickToCode />}
+      {import.meta.env.DEV && (
+        <ClickToCode
+          editor="cursor"
+          projectRoot={__CLICK_TO_CODE_PROJECT_ROOT__}
+        />
+      )}
       <main>{/* application */}</main>
     </>
   )
@@ -89,7 +116,10 @@ const ClickToCode = import.meta.env.DEV
 export function DevTools() {
   return ClickToCode ? (
     <Suspense fallback={null}>
-      <ClickToCode />
+      <ClickToCode
+        editor="cursor"
+        projectRoot={__CLICK_TO_CODE_PROJECT_ROOT__}
+      />
     </Suspense>
   ) : null
 }
@@ -99,16 +129,37 @@ export function DevTools() {
 
 ## Next.js
 
-Next.js 同样不需要配置项目根目录。App Router 中创建一个只在开发环境挂载的
-Client Component：
+在 `next.config.ts` 中仅向开发构建注入项目根目录：
+
+```ts
+import type { NextConfig } from 'next'
+
+const nextConfig: NextConfig = {
+  env: {
+    NEXT_PUBLIC_CLICK_TO_CODE_PROJECT_ROOT:
+      process.env.NODE_ENV === 'development' ? process.cwd() : '',
+  },
+}
+
+export default nextConfig
+```
+
+App Router 中再创建一个 Client Component：
 
 ```tsx
 'use client'
 
 import { ClickToCode } from 'click-to-code'
-export function DevClickToCode() {
+import type { ClickToCodeProps } from 'click-to-code'
+
+export function DevClickToCode(props: ClickToCodeProps) {
   if (process.env.NODE_ENV !== 'development') return null
-  return <ClickToCode />
+  return (
+    <ClickToCode
+      {...props}
+      projectRoot={process.env.NEXT_PUBLIC_CLICK_TO_CODE_PROJECT_ROOT}
+    />
+  )
 }
 ```
 
@@ -121,7 +172,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="zh-CN">
       <body>
-        <DevClickToCode />
+        <DevClickToCode editor="cursor" />
         {children}
       </body>
     </html>
@@ -138,7 +189,12 @@ import type { AppProps } from 'next/app'
 export default function App({ Component, pageProps }: AppProps) {
   return (
     <>
-      {process.env.NODE_ENV === 'development' && <ClickToCode />}
+      {process.env.NODE_ENV === 'development' && (
+        <ClickToCode
+          editor="cursor"
+          projectRoot={process.env.NEXT_PUBLIC_CLICK_TO_CODE_PROJECT_ROOT}
+        />
+      )}
       <Component {...pageProps} />
     </>
   )
@@ -173,7 +229,7 @@ tree shaking/minification。如果所用构建工具不能静态替换环境变�
 
 ### `editor`
 
-默认编辑器 URL scheme 是 `vscode`：
+默认编辑器是 `vscode`：
 
 ```tsx
 <ClickToCode editor="vscode" />
@@ -181,22 +237,19 @@ tree shaking/minification。如果所用构建工具不能静态替换环境变�
 <ClickToCode editor="cursor" />
 ```
 
-也可以传入自定义编辑器 URL scheme，例如 `webstorm`。Vite 成功恢复 workspace
-root 后，以及源码本身已经是绝对路径时，会直接使用这里配置的 URL scheme。
-如果只能回退到 Vite 或 Next.js 的开发服务器接口，编辑器由开发服务器自动
-检测（也可以通过其 `LAUNCH_EDITOR` 环境变量指定）。
+也可以传入自定义编辑器 URL scheme，例如 `webstorm`。
 
 ### `projectRoot`
 
-通常不需要配置。Vite 会自动恢复 workspace root，Next.js 可以通过自己的开发
-服务器解析项目相对路径。只有自定义开发服务器没有提供路径信息或打开编辑器
-接口时，才需要把本机项目根目录作为兜底传入：
+React 19 的浏览器 stack 可能只包含 `/src/App.tsx` 或 `app/page.tsx`。这些是
+相对于项目根目录的开发服务器路径，不是电脑上的绝对路径。通过 `projectRoot`
+提供本机项目根目录后，会生成正确的编辑器路径：
 
 ```tsx
 <ClickToCode projectRoot="/Users/me/project" />
 ```
 
-配置后，例如 `/src/App.tsx:5:19` 会被解析成
+例如 `/src/App.tsx:5:19` 会被解析成
 `/Users/me/project/src/App.tsx:5:19`。Vite 的 `/@fs/...` 路径和 React 18
 已有的绝对路径不会被重复拼接。
 

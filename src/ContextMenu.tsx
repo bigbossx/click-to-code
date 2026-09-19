@@ -7,7 +7,7 @@ import {
   getDisplayNameForInstance,
   getPathToSourceSafely,
   getPropsForInstance,
-  openSourceInEditor,
+  getUrl,
 } from './utils'
 
 interface ContextMenuProps {
@@ -101,12 +101,7 @@ export function ContextMenu({
               onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
                 event.preventDefault()
                 try {
-                  openSourceInEditor(
-                    source,
-                    path,
-                    editor,
-                    !projectRoot && !pathModifier,
-                  )
+                  window.location.assign(getUrl(editor, path))
                 } catch {
                   // Invalid custom editor URLs should not escape into the host app.
                 } finally {

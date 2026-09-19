@@ -18,7 +18,6 @@ export interface SourceLocation {
 export interface ClickToCodeProps {
   editor?: Editor
   pathModifier?: PathModifier
-  /** Fallback for custom dev servers that cannot resolve project-relative files. */
   projectRoot?: string
 }
 
