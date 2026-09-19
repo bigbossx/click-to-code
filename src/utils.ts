@@ -26,6 +26,99 @@ export function getPathToSourceSafely(
   }
 }
 
+export function getDevServerOpenUrl(
+  source: SourceLocation,
+  scriptUrls: Iterable<string>,
+  pageUrl: string,
+): string | undefined {
+  if (!source.projectRelative) return
+
+  const file = source.fileName.replace(/\\/g, '/').replace(/^\.?\//, '')
+  if (!file) return
+
+  try {
+    const scripts = Array.from(scriptUrls)
+    const viteClient = scripts.find((scriptUrl) => {
+      const pathname = new URL(scriptUrl, pageUrl).pathname
+      return pathname.endsWith('/@vite/client')
+    })
+
+    if (viteClient) {
+      const clientUrl = new URL(viteClient, pageUrl)
+      clientUrl.pathname = clientUrl.pathname.replace(
+        /@vite\/client$/,
+        '__open-in-editor',
+      )
+      clientUrl.search = ''
+      clientUrl.searchParams.set(
+        'file',
+        `${file}:${source.lineNumber}:${source.columnNumber}`,
+      )
+      return clientUrl.href
+    }
+
+    const nextClient = scripts.find((scriptUrl) =>
+      new URL(scriptUrl, pageUrl).pathname.includes('/_next/'),
+    )
+    if (nextClient) {
+      const clientUrl = new URL(nextClient, pageUrl)
+      const basePath = clientUrl.pathname.split('/_next/', 1)[0]
+      clientUrl.pathname = `${basePath}/__nextjs_launch-editor`
+      clientUrl.search = ''
+      clientUrl.searchParams.set('file', file)
+      clientUrl.searchParams.set('line1', String(source.lineNumber))
+      clientUrl.searchParams.set('column1', String(source.columnNumber))
+      return clientUrl.href
+    }
+  } catch {
+    return
+  }
+}
+
+export function openSourceInEditor(
+  source: SourceLocation,
+  pathToSource: string,
+  editor: string,
+  useDevServer: boolean,
+): void {
+  const fallback = () => {
+    try {
+      window.location.assign(getUrl(editor, pathToSource))
+    } catch {
+      // Invalid custom editor URLs should not escape into the host app.
+    }
+  }
+
+  if (!useDevServer) {
+    fallback()
+    return
+  }
+
+  let openUrl: string | undefined
+  try {
+    openUrl = getDevServerOpenUrl(
+      source,
+      Array.from(document.scripts, (script) => script.src),
+      window.location.href,
+    )
+  } catch {
+    openUrl = undefined
+  }
+
+  if (!openUrl) {
+    fallback()
+    return
+  }
+
+  try {
+    void window.fetch(openUrl).then((response) => {
+      if (!response.ok) fallback()
+    }, fallback)
+  } catch {
+    fallback()
+  }
+}
+
 function joinProjectPath(projectRoot: string, fileName: string): string {
   const root = projectRoot.replace(/\\/g, '/').replace(/\/+$/, '')
   const relativeFile = fileName.replace(/\\/g, '/').replace(/^\.?(?:\/|$)/, '')

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { FiberType } from '../src/types'
 import {
   getDisplayNameForInstance,
+  getDevServerOpenUrl,
   getPathToSource,
   getPathToSourceSafely,
   getPropsForInstance,
@@ -113,5 +114,52 @@ describe('getPathToSource', () => {
         'C:\\code\\project',
       ),
     ).toBe('C:/code/project/src/App.tsx:5:19')
+  })
+})
+
+describe('getDevServerOpenUrl', () => {
+  const source = {
+    fileName: '/src/App.tsx',
+    lineNumber: 5,
+    columnNumber: 19,
+    projectRelative: true,
+  }
+
+  it('uses the Vite dev server root, including a configured base path', () => {
+    expect(
+      getDevServerOpenUrl(
+        source,
+        ['http://localhost:5173/demo/@vite/client'],
+        'http://localhost:5173/demo/',
+      ),
+    ).toBe(
+      'http://localhost:5173/demo/__open-in-editor?file=src%2FApp.tsx%3A5%3A19',
+    )
+  })
+
+  it('uses the Next.js dev server root, including a configured base path', () => {
+    expect(
+      getDevServerOpenUrl(
+        source,
+        ['http://localhost:3000/demo/_next/static/chunks/main.js'],
+        'http://localhost:3000/demo/',
+      ),
+    ).toBe(
+      'http://localhost:3000/demo/__nextjs_launch-editor?file=src%2FApp.tsx&line1=5&column1=19',
+    )
+  })
+
+  it('does not route absolute filesystem paths through a dev server', () => {
+    expect(
+      getDevServerOpenUrl(
+        {
+          ...source,
+          fileName: '/Users/me/project/src/App.tsx',
+          projectRelative: false,
+        },
+        ['http://localhost:5173/@vite/client'],
+        'http://localhost:5173/',
+      ),
+    ).toBeUndefined()
   })
 })

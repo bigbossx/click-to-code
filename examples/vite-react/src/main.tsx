@@ -7,12 +7,7 @@ import './styles.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {import.meta.env.DEV && (
-      <ClickToCode
-        editor="vscode"
-        projectRoot={__CLICK_TO_CODE_PROJECT_ROOT__}
-      />
-    )}
+    {import.meta.env.DEV && <ClickToCode editor="vscode" />}
     <App />
   </StrictMode>,
 )

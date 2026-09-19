@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { ContextMenu } from './ContextMenu'
 import { getSourceForElement } from './reactFiber'
 import type { ClickToCodeProps } from './types'
-import { getPathToSourceSafely, getUrl } from './utils'
+import { getPathToSourceSafely, openSourceInEditor } from './utils'
 
 type Mode = 'idle' | 'hover' | 'select'
 
@@ -45,7 +45,12 @@ export function ClickToCode({
 
         event.preventDefault()
         event.stopPropagation()
-        window.location.assign(getUrl(editor, path))
+        openSourceInEditor(
+          source,
+          path,
+          editor,
+          !projectRoot && !pathModifier,
+        )
       } catch {
         // Keep failures in private React data or editor navigation local.
       } finally {
