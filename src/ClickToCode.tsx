@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { ContextMenu } from './ContextMenu'
-import { getSourceForElement } from './reactFiber'
+import {
+  getSourceForElement,
+  resolveSourceLocation,
+  sourceLocationNeedsResolution,
+} from './reactFiber'
 import type { ClickToCodeProps } from './types'
 import { getPathToSourceSafely, getUrl } from './utils'
 
@@ -40,12 +44,34 @@ export function ClickToCode({
       try {
         const source = getSourceForElement(event.target)
         if (!source) return
-        const path = getPathToSourceSafely(source, pathModifier, projectRoot)
-        if (!path) return
+
+        if (!sourceLocationNeedsResolution(source)) {
+          const path = getPathToSourceSafely(source, pathModifier, projectRoot)
+          if (!path) return
+
+          event.preventDefault()
+          event.stopPropagation()
+          window.location.assign(getUrl(editor, path))
+          return
+        }
 
         event.preventDefault()
         event.stopPropagation()
-        window.location.assign(getUrl(editor, path))
+        void resolveSourceLocation(source).then((resolvedSource) => {
+          if (!resolvedSource) return
+          const path = getPathToSourceSafely(
+            resolvedSource,
+            pathModifier,
+            projectRoot,
+          )
+          if (!path) return
+
+          try {
+            window.location.assign(getUrl(editor, path))
+          } catch {
+            // Invalid custom editor URLs should not escape into the host app.
+          }
+        })
       } catch {
         // Keep failures in private React data or editor navigation local.
       } finally {

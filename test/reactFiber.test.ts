@@ -4,6 +4,8 @@ import {
   getReactInstancesForElement,
   getSourceForInstance,
   parseDebugStack,
+  resolveSourceLocation,
+  sourceLocationNeedsResolution,
 } from '../src/reactFiber'
 
 describe('getSourceForInstance', () => {
@@ -100,17 +102,84 @@ describe('parseDebugStack', () => {
     })
   })
 
+  it('maps a Next Server Component fake stack through Next source maps', async () => {
+    const source = parseDebugStack(
+      [
+        'Error: react-stack-top-frame',
+        '    at fakeJSXCallSite (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-server-dom-turbopack_hash._.js:2001:21)',
+        '    at ExampleCard (about://React/Server/file:///Users/me/project/.next/dev/server/chunks/ssr/%5Broot%5D.js?11:54:264)',
+        '    at Object.react_stack_bottom_frame (http://localhost:3000/_next/static/chunks/node_modules_next_dist_compiled_react-server-dom-turbopack_hash._.js:2768:93)',
+      ].join('\n'),
+    )
+    expect(source).toEqual({
+      fileName: '/Users/me/project/.next/dev/server/chunks/ssr/[root].js',
+      lineNumber: 54,
+      columnNumber: 264,
+    })
+    if (!source) throw new Error('Expected a parsed Next source')
+    expect(sourceLocationNeedsResolution(source)).toBe(true)
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [
+        {
+          status: 'fulfilled',
+          value: {
+            originalStackFrame: {
+              file: 'app/page.tsx',
+              line1: 15,
+              column1: 7,
+            },
+          },
+        },
+      ],
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('window', { location: { href: 'http://localhost:3000/' } })
+    vi.stubGlobal('document', {
+      scripts: [{ src: 'http://localhost:3000/_next/static/chunks/app.js' }],
+    })
+
+    await expect(resolveSourceLocation(source)).resolves.toEqual({
+      fileName: 'app/page.tsx',
+      lineNumber: 15,
+      columnNumber: 7,
+      projectRelative: true,
+    })
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/__nextjs_original-stack-frames',
+      expect.objectContaining({ method: 'POST' }),
+    )
+
+    const request = JSON.parse(fetchMock.mock.calls[0]?.[1]?.body as string)
+    expect(request).toMatchObject({
+      isServer: true,
+      isAppDirectory: true,
+      frames: [
+        {
+          file: 'about://React/Server/file:///Users/me/project/.next/dev/server/chunks/ssr/%5Broot%5D.js?11',
+          line1: 54,
+          column1: 264,
+          methodName: 'ExampleCard',
+        },
+      ],
+    })
+
+    vi.unstubAllGlobals()
+  })
+
   it('marks Vite root URLs as project-relative', () => {
-    expect(
-      parseDebugStack(
-        'Error\n    at App (http://localhost:5173/src/App.tsx:5:19)',
-      ),
-    ).toEqual({
+    const source = parseDebugStack(
+      'Error\n    at App (http://localhost:5173/src/App.tsx:5:19)',
+    )
+    expect(source).toEqual({
       fileName: '/src/App.tsx',
       lineNumber: 5,
       columnNumber: 19,
       projectRelative: true,
     })
+    if (!source) throw new Error('Expected a parsed Vite source')
+    expect(sourceLocationNeedsResolution(source)).toBe(false)
   })
 
   it('skips Vite prebundled React runtime frames', () => {

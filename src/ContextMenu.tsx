@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 
-import { getReactInstancesForElement, getSourceForInstance } from './reactFiber'
+import {
+  getReactInstancesForElement,
+  getSourceForInstance,
+  resolveSourceLocation,
+  sourceLocationNeedsResolution,
+} from './reactFiber'
 import type { Editor, PathModifier } from './types'
 import {
   getDisplayNameForInstance,
@@ -35,18 +40,10 @@ export function ContextMenu({
           const source = getSourceForInstance(fiber)
           if (!source) return []
 
-          const path = getPathToSourceSafely(
-            source,
-            pathModifier,
-            projectRoot,
-          )
-          if (!path) return []
-
           return [
             {
               fiber,
               source,
-              path,
               name: getDisplayNameForInstance(fiber),
               props: getPropsForInstance(fiber),
             },
@@ -55,7 +52,7 @@ export function ContextMenu({
           return []
         }
       }),
-    [pathModifier, projectRoot, target],
+    [target],
   )
 
   useEffect(() => {
@@ -93,7 +90,7 @@ export function ContextMenu({
         aria-label="Open component source"
         style={{ top, left }}
       >
-        {items.map(({ source, path, name, props }, index) => {
+        {items.map(({ source, name, props }, index) => {
           return (
             <button
               key={`${source.fileName}:${source.lineNumber}:${index}`}
@@ -101,7 +98,31 @@ export function ContextMenu({
               onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
                 event.preventDefault()
                 try {
-                  window.location.assign(getUrl(editor, path))
+                  if (!sourceLocationNeedsResolution(source)) {
+                    const path = getPathToSourceSafely(
+                      source,
+                      pathModifier,
+                      projectRoot,
+                    )
+                    if (path) window.location.assign(getUrl(editor, path))
+                    return
+                  }
+
+                  void resolveSourceLocation(source).then((resolvedSource) => {
+                    if (!resolvedSource) return
+                    const resolvedPath = getPathToSourceSafely(
+                      resolvedSource,
+                      pathModifier,
+                      projectRoot,
+                    )
+                    if (!resolvedPath) return
+
+                    try {
+                      window.location.assign(getUrl(editor, resolvedPath))
+                    } catch {
+                      // Keep navigation failures local to the menu action.
+                    }
+                  })
                 } catch {
                   // Invalid custom editor URLs should not escape into the host app.
                 } finally {

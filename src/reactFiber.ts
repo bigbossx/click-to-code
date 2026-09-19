@@ -1,5 +1,27 @@
 import type { ReactFiber, SourceLocation } from './types'
 
+interface NextStackFrame {
+  file: string
+  line1: number
+  column1: number
+  methodName: string
+  isServer: boolean
+}
+
+interface NextOriginalStackFrameResponse {
+  status?: unknown
+  value?: {
+    originalStackFrame?: {
+      file?: unknown
+      line1?: unknown
+      column1?: unknown
+    } | null
+  }
+}
+
+const nextStackFrames = new WeakMap<SourceLocation, NextStackFrame>()
+const nextSourceCache = new Map<string, Promise<SourceLocation | undefined>>()
+
 type DevToolsRenderer = {
   findFiberByHostInstance?: (element: Element) => ReactFiber | null
 }
@@ -167,12 +189,108 @@ export function parseDebugStack(
     }
     if (!normalizedFile) continue
 
-    return {
+    const source: SourceLocation = {
       fileName: normalizedFile.fileName,
       lineNumber: normalizePosition(Number(rawLine)),
       columnNumber: normalizePosition(Number(rawColumn)),
       ...(normalizedFile.projectRelative ? { projectRelative: true } : {}),
     }
+
+    if (normalizedFile.nextFrame) {
+      nextStackFrames.set(source, {
+        file: normalizedFile.nextFrame.file,
+        line1: source.lineNumber,
+        column1: source.columnNumber,
+        methodName: getStackMethodName(line),
+        isServer: normalizedFile.nextFrame.isServer,
+      })
+    }
+
+    return source
+  }
+}
+
+export function resolveSourceLocation(
+  source: SourceLocation,
+): Promise<SourceLocation | undefined> {
+  const frame = nextStackFrames.get(source)
+  if (!frame) return Promise.resolve(source)
+
+  const cacheKey = `${frame.file}:${frame.line1}:${frame.column1}:${frame.isServer}`
+  const cached = nextSourceCache.get(cacheKey)
+  if (cached) return cached
+
+  const resolution = resolveNextSource(frame).then((resolved) => {
+    if (!resolved) nextSourceCache.delete(cacheKey)
+    return resolved
+  })
+  nextSourceCache.set(cacheKey, resolution)
+  return resolution
+}
+
+export function sourceLocationNeedsResolution(source: SourceLocation): boolean {
+  return nextStackFrames.has(source)
+}
+
+async function resolveNextSource(
+  frame: NextStackFrame,
+): Promise<SourceLocation | undefined> {
+  try {
+    const response = await fetch(getNextStackFrameEndpoint(), {
+      method: 'POST',
+      body: JSON.stringify({
+        frames: [{ ...frame, arguments: [] }],
+        isServer: frame.isServer,
+        isEdgeServer: false,
+        isAppDirectory: true,
+      }),
+    })
+    if (!response.ok) return
+
+    const body = (await response.json()) as unknown
+    if (!Array.isArray(body)) return
+
+    const result = body[0] as NextOriginalStackFrameResponse | undefined
+    const original = result?.status === 'fulfilled'
+      ? result.value?.originalStackFrame
+      : undefined
+    if (
+      typeof original?.file !== 'string' ||
+      !original.file ||
+      typeof original.line1 !== 'number'
+    ) {
+      return
+    }
+
+    const fileName = original.file.startsWith('file://')
+      ? original.file.slice('file://'.length)
+      : original.file
+    const projectRelative = !isAbsoluteFilePath(fileName)
+
+    return {
+      fileName,
+      lineNumber: normalizePosition(original.line1),
+      columnNumber: normalizePosition(original.column1),
+      ...(projectRelative ? { projectRelative: true } : {}),
+    }
+  } catch {
+    return
+  }
+}
+
+function getNextStackFrameEndpoint(): string {
+  try {
+    const pageUrl = window.location.href
+    const script = Array.from(document.scripts, (item) => item.src).find(
+      (source) => new URL(source, pageUrl).pathname.includes('/_next/'),
+    )
+    if (!script) return '/__nextjs_original-stack-frames'
+
+    const scriptUrl = new URL(script, pageUrl)
+    const basePath = scriptUrl.pathname.split('/_next/', 1)[0]
+    return `${scriptUrl.origin}${basePath}/__nextjs_original-stack-frames`
+  } catch {
+    return '/__nextjs_original-stack-frames'
   }
 }
 
@@ -191,12 +309,14 @@ function normalizeSource(
 interface NormalizedStackFile {
   fileName: string
   projectRelative: boolean
+  nextFrame?: { file: string; isServer: boolean }
 }
 
 function normalizeStackFileName(
   rawFileName: string,
 ): NormalizedStackFile | undefined {
   let fileName = rawFileName.replace(/^\(/, '')
+  const stackFileName = fileName
   let projectRelative = false
 
   try {
@@ -207,11 +327,25 @@ function normalizeStackFileName(
 
   if (fileName.startsWith('file://')) {
     fileName = fileName.slice('file://'.length)
+  } else if (fileName.startsWith('about://React/Server/file://')) {
+    fileName = fileName.slice('about://React/Server/file://'.length)
+    return {
+      fileName: fileName.replace(/[?#].*$/, ''),
+      projectRelative: false,
+      nextFrame: { file: stackFileName, isServer: true },
+    }
   } else if (/^https?:\/\//.test(fileName)) {
     const url = new URL(fileName)
     const isFileSystemPath = url.pathname.startsWith('/@fs/')
     fileName = url.pathname.replace(/^\/@fs\//, '/')
     projectRelative = !isFileSystemPath
+    if (url.pathname.includes('/_next/static/chunks/')) {
+      return {
+        fileName: fileName.replace(/[?#].*$/, ''),
+        projectRelative,
+        nextFrame: { file: stackFileName, isServer: false },
+      }
+    }
   } else if (fileName.startsWith('webpack-internal://')) {
     fileName = fileName
       .replace(/^webpack-internal:\/\/\/(?:\([^)]*\)\/)?/, '')
@@ -231,8 +365,19 @@ function isReactInternalFrame(fileName: string): boolean {
     fileName.includes('/node_modules/.vite/deps/react_') ||
     fileName.includes('react-jsx-dev-runtime') ||
     fileName.includes('react_jsx-dev-runtime') ||
+    fileName.includes('react-server-dom-') ||
+    fileName.includes('/node_modules_next_dist_') ||
+    fileName.includes('/node_modules/next/dist/') ||
     fileName.includes('react_stack_bottom_frame')
   )
+}
+
+function getStackMethodName(line: string): string {
+  return line.trim().match(/^at\s+(.+?)\s+\(/)?.[1] ?? '<unknown>'
+}
+
+function isAbsoluteFilePath(fileName: string): boolean {
+  return fileName.startsWith('/') || /^[A-Za-z]:[\\/]/.test(fileName)
 }
 
 function normalizePosition(value: unknown): number {

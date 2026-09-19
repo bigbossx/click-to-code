@@ -146,6 +146,11 @@ export default nextConfig
 
 App Router 中再创建一个 Client Component：
 
+App Router 的 Server Component 调试栈会先指向 Next.js 生成的 SSR chunk。
+`click-to-code` 会通过 Next.js 开发服务器的 source-map 接口把它映射回
+`app/page.tsx` 等原始文件，再结合 `projectRoot` 打开编辑器。映射结果会缓存；
+首次定位某个 Server Component 时会发生一次本地开发服务器请求。
+
 ```tsx
 'use client'
 
