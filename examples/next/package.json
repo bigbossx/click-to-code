@@ -7,7 +7,7 @@
     "dev": "next dev"
   },
   "dependencies": {
-    "click-to-code": "file:../..",
+    "click-to-code": "workspace:*",
     "next": "^16.3.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

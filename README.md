@@ -30,22 +30,22 @@ React 和 React DOM 由宿主项目提供，支持版本为 `>=18 <20`。
 - [`examples/vite-react`](./examples/vite-react)：Vite 8 + React 19，使用
   `import.meta.env.DEV && <ClickToCode />`。
 - [`examples/webpack-react`](./examples/webpack-react)：Webpack 5 + Babel +
-  React 19，用于和 Vite 的源码行列号进行对照。
+  React 19，演示 `eval-source-map` 的源码定位。
 - [`examples/next`](./examples/next)：Next.js 16 App Router + React 19，
   通过 Client Component 仅在开发环境挂载。
 
 克隆仓库并安装依赖后，可以分别启动：
 
 ```sh
-npm run examples:vite
-npm run examples:webpack
-npm run examples:next
+pnpm examples:vite
+pnpm examples:webpack
+pnpm examples:next
 ```
 
 一次验证包和两个示例的生产构建：
 
 ```sh
-npm run examples:build
+pnpm examples:build
 ```
 
 ## Vite：推荐接入方式
@@ -102,6 +102,10 @@ export function App() {
 注意 Vite 的内置常量是大写的 `import.meta.env.DEV`，不是
 `import.meta.env.dev`。
 
+React 19 的调试栈包含 Vite 转换后的行列号。首次定位某个开发模块时，
+`click-to-code` 会读取该模块携带的 source map，并把位置还原到原始 TSX；
+解析结果会缓存。无需为了这一步增加 Alt/Option hover 预加载。
+
 ### 可选：开发环境异步加载
 
 只有在希望 inspector 不进入开发环境的初始 chunk 时，才需要 `lazy` 和动态导入：
@@ -130,13 +134,13 @@ export function DevTools() {
 
 这个方案的区别只是开发环境代码分包，不是生产 tree-shaking 的必要条件。
 
-## Webpack：对照示例
+## Webpack：推荐接入方式
 
 Webpack 示例使用 Babel 的 automatic JSX runtime 和 `eval-source-map`，组件结构与
-Vite 示例保持一致，便于直接比较 React 19 `_debugStack` 的文件路径和行列号：
+Vite 示例保持一致：
 
 ```sh
-npm run examples:webpack
+pnpm examples:webpack
 ```
 
 开发配置通过 `DefinePlugin` 注入显式 `projectRoot`；应用仍然只在 development
@@ -147,6 +151,10 @@ npm run examples:webpack
   <ClickToCode projectRoot={__CLICK_TO_CODE_PROJECT_ROOT__} />
 )}
 ```
+
+Webpack 开发配置必须开启 source map。对于示例使用的 `eval-source-map`，首次定位
+某个模块时会读取当前页面的入口 bundle、提取该模块的内联 source map，并缓存映射
+结果。读取或解析失败时会回退到 React 调试栈中的原始位置，不会影响宿主页面。
 
 ## Next.js
 

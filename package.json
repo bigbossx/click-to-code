@@ -1,6 +1,7 @@
 {
   "name": "click-to-code",
   "version": "1.0.0",
+  "packageManager": "pnpm@12.3.4",
   "description": "Option+Click a React component to open its source in your editor",
   "type": "module",
   "sideEffects": false,
@@ -27,12 +28,15 @@
   "scripts": {
     "build": "tsup",
     "check": "tsc --noEmit",
-    "examples:build": "npm run build && npm run build --workspace @click-to-code/example-vite-react && npm run build --workspace @click-to-code/example-webpack-react && npm run build --workspace @click-to-code/example-next",
-    "examples:next": "npm run dev --workspace @click-to-code/example-next",
-    "examples:vite": "npm run dev --workspace @click-to-code/example-vite-react",
-    "examples:webpack": "npm run dev --workspace @click-to-code/example-webpack-react",
+    "examples:build": "pnpm build && pnpm --filter @click-to-code/example-vite-react build && pnpm --filter @click-to-code/example-webpack-react build && pnpm --filter @click-to-code/example-next build",
+    "examples:next": "pnpm --filter @click-to-code/example-next dev",
+    "examples:vite": "pnpm --filter @click-to-code/example-vite-react dev",
+    "examples:webpack": "pnpm --filter @click-to-code/example-webpack-react dev",
     "test": "vitest run",
     "prepublishOnly": "npm run check && npm test && npm run build"
+  },
+  "dependencies": {
+    "@jridgewell/trace-mapping": "^0.3.31"
   },
   "peerDependencies": {
     "react": ">=18.0.0 <20.0.0",

@@ -168,7 +168,7 @@ describe('parseDebugStack', () => {
     vi.unstubAllGlobals()
   })
 
-  it('marks Vite root URLs as project-relative', () => {
+  it('maps Vite generated positions through the module source map', async () => {
     const source = parseDebugStack(
       'Error\n    at App (http://localhost:5173/src/App.tsx:5:19)',
     )
@@ -179,7 +179,72 @@ describe('parseDebugStack', () => {
       projectRelative: true,
     })
     if (!source) throw new Error('Expected a parsed Vite source')
-    expect(sourceLocationNeedsResolution(source)).toBe(false)
+    expect(sourceLocationNeedsResolution(source)).toBe(true)
+
+    const map = btoa(
+      JSON.stringify({
+        version: 3,
+        names: [],
+        sources: ['App.tsx'],
+        sourcesContent: ['export function App() {}'],
+        mappings: ';;;;AAEA',
+      }),
+    )
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () =>
+        `export function App() {}\n//# sourceMappingURL=data:application/json;base64,${map}`,
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(resolveSourceLocation(source)).resolves.toEqual({
+      fileName: '/src/App.tsx',
+      lineNumber: 3,
+      columnNumber: 1,
+      projectRelative: true,
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    vi.unstubAllGlobals()
+  })
+
+  it('maps webpack eval-source-map positions through the entry bundle', async () => {
+    const source = parseDebugStack(
+      'Error\n    at App (webpack-internal:///./src/App.tsx:5:19)',
+    )
+    if (!source) throw new Error('Expected a parsed webpack source')
+    expect(sourceLocationNeedsResolution(source)).toBe(true)
+
+    const map = btoa(
+      JSON.stringify({
+        version: 3,
+        names: [],
+        sources: ['webpack:///example-webpack-react/src/App.tsx'],
+        sourcesContent: ['export function App() {}'],
+        mappings: ';;;;AAEA',
+      }),
+    )
+    const moduleSource = [
+      'export function App() {}',
+      `//# sourceMappingURL=data:application/json;base64,${map}`,
+      '//# sourceURL=webpack-internal:///./src/App.tsx',
+    ].join('\n')
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => `eval(${JSON.stringify(moduleSource)});`,
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('document', {
+      scripts: [{ src: 'http://localhost:5174/main.js' }],
+    })
+
+    await expect(resolveSourceLocation(source)).resolves.toEqual({
+      fileName: 'src/App.tsx',
+      lineNumber: 3,
+      columnNumber: 1,
+      projectRelative: true,
+    })
+    expect(fetchMock).toHaveBeenCalledWith('http://localhost:5174/main.js')
+    vi.unstubAllGlobals()
   })
 
   it('skips Vite prebundled React runtime frames', () => {

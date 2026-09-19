@@ -7,7 +7,7 @@
     "dev": "webpack serve --mode development"
   },
   "dependencies": {
-    "click-to-code": "file:../..",
+    "click-to-code": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

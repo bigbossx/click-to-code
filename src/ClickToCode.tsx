@@ -1,13 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { ContextMenu } from './ContextMenu'
-import {
-  getSourceForElement,
-  resolveSourceLocation,
-  sourceLocationNeedsResolution,
-} from './reactFiber'
+import { getSourceForElement } from './reactFiber'
+import { openSourceInEditor } from './sourceNavigation'
 import type { ClickToCodeProps } from './types'
-import { getPathToSourceSafely, getUrl } from './utils'
 
 type Mode = 'idle' | 'hover' | 'select'
 
@@ -45,33 +41,9 @@ export function ClickToCode({
         const source = getSourceForElement(event.target)
         if (!source) return
 
-        if (!sourceLocationNeedsResolution(source)) {
-          const path = getPathToSourceSafely(source, pathModifier, projectRoot)
-          if (!path) return
-
-          event.preventDefault()
-          event.stopPropagation()
-          window.location.assign(getUrl(editor, path))
-          return
-        }
-
         event.preventDefault()
         event.stopPropagation()
-        void resolveSourceLocation(source).then((resolvedSource) => {
-          if (!resolvedSource) return
-          const path = getPathToSourceSafely(
-            resolvedSource,
-            pathModifier,
-            projectRoot,
-          )
-          if (!path) return
-
-          try {
-            window.location.assign(getUrl(editor, path))
-          } catch {
-            // Invalid custom editor URLs should not escape into the host app.
-          }
-        })
+        openSourceInEditor(source, editor, pathModifier, projectRoot)
       } catch {
         // Keep failures in private React data or editor navigation local.
       } finally {

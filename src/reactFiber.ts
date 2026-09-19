@@ -1,4 +1,8 @@
 import type { ReactFiber, SourceLocation } from './types'
+import {
+  resolveSourceMapStackFrame,
+  type SourceMapStackFrame,
+} from './sourceMap'
 
 interface NextStackFrame {
   file: string
@@ -21,6 +25,8 @@ interface NextOriginalStackFrameResponse {
 
 const nextStackFrames = new WeakMap<SourceLocation, NextStackFrame>()
 const nextSourceCache = new Map<string, Promise<SourceLocation | undefined>>()
+const sourceMapStackFrames = new WeakMap<SourceLocation, SourceMapStackFrame>()
+const sourceMapPositionCache = new Map<string, Promise<SourceLocation>>()
 
 type DevToolsRenderer = {
   findFiberByHostInstance?: (element: Element) => ReactFiber | null
@@ -205,6 +211,13 @@ export function parseDebugStack(
         isServer: normalizedFile.nextFrame.isServer,
       })
     }
+    if (normalizedFile.sourceMapFrame) {
+      sourceMapStackFrames.set(source, {
+        ...normalizedFile.sourceMapFrame,
+        lineNumber: source.lineNumber,
+        columnNumber: source.columnNumber,
+      })
+    }
 
     return source
   }
@@ -214,7 +227,7 @@ export function resolveSourceLocation(
   source: SourceLocation,
 ): Promise<SourceLocation | undefined> {
   const frame = nextStackFrames.get(source)
-  if (!frame) return Promise.resolve(source)
+  if (!frame) return resolveBundlerSource(source)
 
   const cacheKey = `${frame.file}:${frame.line1}:${frame.column1}:${frame.isServer}`
   const cached = nextSourceCache.get(cacheKey)
@@ -229,7 +242,47 @@ export function resolveSourceLocation(
 }
 
 export function sourceLocationNeedsResolution(source: SourceLocation): boolean {
-  return nextStackFrames.has(source)
+  return nextStackFrames.has(source) || sourceMapStackFrames.has(source)
+}
+
+function resolveBundlerSource(source: SourceLocation): Promise<SourceLocation> {
+  const frame = sourceMapStackFrames.get(source)
+  if (!frame) return Promise.resolve(source)
+
+  const cacheKey = `${frame.kind}:${frame.file}:${frame.lineNumber}:${frame.columnNumber}`
+  const cached = sourceMapPositionCache.get(cacheKey)
+  if (cached) return cached
+
+  const resolution = resolveSourceMapStackFrame(frame).then((original) => {
+    try {
+      if (!original) {
+        sourceMapPositionCache.delete(cacheKey)
+        return source
+      }
+
+      const normalized = normalizeStackFileName(original.source)
+      if (!normalized) {
+        sourceMapPositionCache.delete(cacheKey)
+        return source
+      }
+
+      const projectRelative =
+        normalized.projectRelative ||
+        (source.projectRelative && normalized.fileName === source.fileName)
+
+      return {
+        fileName: normalized.fileName,
+        lineNumber: normalizePosition(original.lineNumber),
+        columnNumber: normalizePosition(original.columnNumber),
+        ...(projectRelative ? { projectRelative: true } : {}),
+      }
+    } catch {
+      sourceMapPositionCache.delete(cacheKey)
+      return source
+    }
+  })
+  sourceMapPositionCache.set(cacheKey, resolution)
+  return resolution
 }
 
 async function resolveNextSource(
@@ -310,6 +363,7 @@ interface NormalizedStackFile {
   fileName: string
   projectRelative: boolean
   nextFrame?: { file: string; isServer: boolean }
+  sourceMapFrame?: Pick<SourceMapStackFrame, 'file' | 'kind'>
 }
 
 function normalizeStackFileName(
@@ -346,10 +400,32 @@ function normalizeStackFileName(
         nextFrame: { file: stackFileName, isServer: false },
       }
     }
+    return {
+      fileName: fileName.replace(/[?#].*$/, ''),
+      projectRelative,
+      sourceMapFrame: { file: stackFileName, kind: 'module' },
+    }
   } else if (fileName.startsWith('webpack-internal://')) {
     fileName = fileName
       .replace(/^webpack-internal:\/\/\/(?:\([^)]*\)\/)?/, '')
       .replace(/^\.\//, '')
+    projectRelative = true
+    return {
+      fileName: fileName.replace(/[?#].*$/, ''),
+      projectRelative,
+      sourceMapFrame: { file: stackFileName, kind: 'webpack' },
+    }
+  } else if (fileName.startsWith('webpack://')) {
+    fileName = fileName
+      .replace(/^webpack:\/\/[^/]*\//, '')
+      .replace(/^\.\//, '')
+    projectRelative = true
+    return {
+      fileName: fileName.replace(/[?#].*$/, ''),
+      projectRelative,
+      sourceMapFrame: { file: stackFileName, kind: 'webpack' },
+    }
+  } else if (!isAbsoluteFilePath(fileName)) {
     projectRelative = true
   }
 

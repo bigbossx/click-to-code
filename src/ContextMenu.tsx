@@ -1,19 +1,10 @@
 import { useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 
-import {
-  getReactInstancesForElement,
-  getSourceForInstance,
-  resolveSourceLocation,
-  sourceLocationNeedsResolution,
-} from './reactFiber'
+import { getReactInstancesForElement, getSourceForInstance } from './reactFiber'
+import { openSourceInEditor } from './sourceNavigation'
 import type { Editor, PathModifier } from './types'
-import {
-  getDisplayNameForInstance,
-  getPathToSourceSafely,
-  getPropsForInstance,
-  getUrl,
-} from './utils'
+import { getDisplayNameForInstance, getPropsForInstance } from './utils'
 
 interface ContextMenuProps {
   editor: Editor
@@ -98,31 +89,7 @@ export function ContextMenu({
               onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
                 event.preventDefault()
                 try {
-                  if (!sourceLocationNeedsResolution(source)) {
-                    const path = getPathToSourceSafely(
-                      source,
-                      pathModifier,
-                      projectRoot,
-                    )
-                    if (path) window.location.assign(getUrl(editor, path))
-                    return
-                  }
-
-                  void resolveSourceLocation(source).then((resolvedSource) => {
-                    if (!resolvedSource) return
-                    const resolvedPath = getPathToSourceSafely(
-                      resolvedSource,
-                      pathModifier,
-                      projectRoot,
-                    )
-                    if (!resolvedPath) return
-
-                    try {
-                      window.location.assign(getUrl(editor, resolvedPath))
-                    } catch {
-                      // Keep navigation failures local to the menu action.
-                    }
-                  })
+                  openSourceInEditor(source, editor, pathModifier, projectRoot)
                 } catch {
                   // Invalid custom editor URLs should not escape into the host app.
                 } finally {
