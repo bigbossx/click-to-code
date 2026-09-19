@@ -25,10 +25,12 @@ React 和 React DOM 由宿主项目提供，支持版本为 `>=18 <20`。
 
 ## 示例项目
 
-仓库包含两个最小可运行示例：
+仓库包含三个最小可运行示例：
 
 - [`examples/vite-react`](./examples/vite-react)：Vite 8 + React 19，使用
   `import.meta.env.DEV && <ClickToCode />`。
+- [`examples/webpack-react`](./examples/webpack-react)：Webpack 5 + Babel +
+  React 19，用于和 Vite 的源码行列号进行对照。
 - [`examples/next`](./examples/next)：Next.js 16 App Router + React 19，
   通过 Client Component 仅在开发环境挂载。
 
@@ -36,6 +38,7 @@ React 和 React DOM 由宿主项目提供，支持版本为 `>=18 <20`。
 
 ```sh
 npm run examples:vite
+npm run examples:webpack
 npm run examples:next
 ```
 
@@ -126,6 +129,24 @@ export function DevTools() {
 ```
 
 这个方案的区别只是开发环境代码分包，不是生产 tree-shaking 的必要条件。
+
+## Webpack：对照示例
+
+Webpack 示例使用 Babel 的 automatic JSX runtime 和 `eval-source-map`，组件结构与
+Vite 示例保持一致，便于直接比较 React 19 `_debugStack` 的文件路径和行列号：
+
+```sh
+npm run examples:webpack
+```
+
+开发配置通过 `DefinePlugin` 注入显式 `projectRoot`；应用仍然只在 development
+分支挂载组件：
+
+```tsx
+{process.env.NODE_ENV === 'development' && (
+  <ClickToCode projectRoot={__CLICK_TO_CODE_PROJECT_ROOT__} />
+)}
+```
 
 ## Next.js
 

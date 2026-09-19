@@ -27,9 +27,10 @@
   "scripts": {
     "build": "tsup",
     "check": "tsc --noEmit",
-    "examples:build": "npm run build && npm run build --workspace @click-to-code/example-vite-react && npm run build --workspace @click-to-code/example-next",
+    "examples:build": "npm run build && npm run build --workspace @click-to-code/example-vite-react && npm run build --workspace @click-to-code/example-webpack-react && npm run build --workspace @click-to-code/example-next",
     "examples:next": "npm run dev --workspace @click-to-code/example-next",
     "examples:vite": "npm run dev --workspace @click-to-code/example-vite-react",
+    "examples:webpack": "npm run dev --workspace @click-to-code/example-webpack-react",
     "test": "vitest run",
     "prepublishOnly": "npm run check && npm test && npm run build"
   },
