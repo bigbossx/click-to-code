@@ -9,6 +9,9 @@
     "README.md",
     "LICENSE"
   ],
+  "workspaces": [
+    "examples/*"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -24,6 +27,9 @@
   "scripts": {
     "build": "tsup",
     "check": "tsc --noEmit",
+    "examples:build": "npm run build && npm run build --workspace @click-to-code/example-vite-react && npm run build --workspace @click-to-code/example-next",
+    "examples:next": "npm run dev --workspace @click-to-code/example-next",
+    "examples:vite": "npm run dev --workspace @click-to-code/example-vite-react",
     "test": "vitest run",
     "prepublishOnly": "npm run check && npm test && npm run build"
   },

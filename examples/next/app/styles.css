@@ -1,0 +1,35 @@
+:root {
+  font-family: Inter, system-ui, sans-serif;
+  color: #172033;
+  background: #f5f7fb;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  width: min(560px, calc(100% - 48px));
+  margin: 80px auto;
+}
+
+article {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 32px;
+  padding: 24px;
+  border: 1px solid #dce2ef;
+  border-radius: 12px;
+  background: white;
+  box-shadow: 0 12px 32px rgb(32 50 86 / 10%);
+}
+
+svg {
+  width: 32px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}

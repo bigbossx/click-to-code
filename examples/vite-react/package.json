@@ -1,0 +1,25 @@
+{
+  "name": "@click-to-code/example-vite-react",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "click-to-code": "file:../..",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^5.7.0",
+    "vite": "^8.3.0"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}

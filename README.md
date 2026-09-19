@@ -23,6 +23,28 @@ yarn add --dev click-to-code
 
 React 和 React DOM 由宿主项目提供，支持版本为 `>=18 <20`。
 
+## 示例项目
+
+仓库包含两个最小可运行示例：
+
+- [`examples/vite-react`](./examples/vite-react)：Vite 8 + React 19，使用
+  `import.meta.env.DEV && <ClickToCode />`。
+- [`examples/next`](./examples/next)：Next.js 16 App Router + React 19，
+  通过 Client Component 仅在开发环境挂载。
+
+克隆仓库并安装依赖后，可以分别启动：
+
+```sh
+npm run examples:vite
+npm run examples:next
+```
+
+一次验证包和两个示例的生产构建：
+
+```sh
+npm run examples:build
+```
+
 ## Vite：推荐接入方式
 
 不需要使用 `lazy`。Vite 会在生产构建中把 `import.meta.env.DEV` 静态替换为
