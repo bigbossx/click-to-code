@@ -52,8 +52,9 @@ npm run examples:build
 `sideEffects: false`，因此下面的静态导入可以被完整 tree-shake：
 
 直接在应用根节点挂载，不需要修改 `vite.config.ts`，也不需要传入项目根目录。
-组件会使用 Vite 开发服务器的打开编辑器接口，由开发服务器把 `/src/...`
-解析到当前 workspace：
+组件挂载后会在后台从 Vite 已转换的入口模块中恢复 workspace root。点击时直接
+跳转 `vscode://`（或配置的编辑器 URL scheme），不会再等待一次打开编辑器请求。
+如果当前 Vite 转换产物不包含路径元数据，才回退到开发服务器接口：
 
 ```tsx
 import { ClickToCode } from 'click-to-code'
@@ -180,16 +181,16 @@ tree shaking/minification。如果所用构建工具不能静态替换环境变�
 <ClickToCode editor="cursor" />
 ```
 
-也可以传入自定义编辑器 URL scheme，例如 `webstorm`。对于 Vite 和 Next.js
-解析出的项目相对路径，组件优先调用框架自带的开发服务器接口，编辑器由开发
-服务器自动检测（也可以通过其 `LAUNCH_EDITOR` 环境变量指定）。绝对路径以及
-其他开发服务器仍使用这里配置的 URL scheme。
+也可以传入自定义编辑器 URL scheme，例如 `webstorm`。Vite 成功恢复 workspace
+root 后，以及源码本身已经是绝对路径时，会直接使用这里配置的 URL scheme。
+如果只能回退到 Vite 或 Next.js 的开发服务器接口，编辑器由开发服务器自动
+检测（也可以通过其 `LAUNCH_EDITOR` 环境变量指定）。
 
 ### `projectRoot`
 
-通常不需要配置。Vite 和 Next.js 会通过自己的开发服务器自动把项目相对路径
-解析到 workspace。只有自定义开发服务器没有提供打开编辑器接口时，才需要把
-本机项目根目录作为兜底传入：
+通常不需要配置。Vite 会自动恢复 workspace root，Next.js 可以通过自己的开发
+服务器解析项目相对路径。只有自定义开发服务器没有提供路径信息或打开编辑器
+接口时，才需要把本机项目根目录作为兜底传入：
 
 ```tsx
 <ClickToCode projectRoot="/Users/me/project" />

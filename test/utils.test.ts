@@ -7,6 +7,7 @@ import {
   getPathToSource,
   getPathToSourceSafely,
   getPropsForInstance,
+  getViteProjectRootFromSource,
 } from '../src/utils'
 
 describe('getDisplayNameForInstance', () => {
@@ -159,6 +160,35 @@ describe('getDevServerOpenUrl', () => {
         },
         ['http://localhost:5173/@vite/client'],
         'http://localhost:5173/',
+      ),
+    ).toBeUndefined()
+  })
+})
+
+describe('getViteProjectRootFromSource', () => {
+  it('recovers the workspace root from Vite React JSX metadata', () => {
+    expect(
+      getViteProjectRootFromSource(
+        'var _jsxFileName = "/Users/me/project/src/main.tsx";',
+        'src/main.tsx',
+      ),
+    ).toBe('/Users/me/project')
+  })
+
+  it('supports Windows paths emitted as JSON strings', () => {
+    expect(
+      getViteProjectRootFromSource(
+        'var _jsxFileName = "C:\\\\code\\\\project\\\\src\\\\main.tsx";',
+        'src/main.tsx',
+      ),
+    ).toBe('C:/code/project')
+  })
+
+  it('ignores unrelated JSX metadata', () => {
+    expect(
+      getViteProjectRootFromSource(
+        'var _jsxFileName = "/Users/me/other/App.tsx";',
+        'src/main.tsx',
       ),
     ).toBeUndefined()
   })

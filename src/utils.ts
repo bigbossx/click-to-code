@@ -1,5 +1,8 @@
 import type { FiberType, PathModifier, ReactFiber, SourceLocation } from './types'
 
+let detectedProjectRoot: string | undefined
+let projectRootDetection: Promise<void> | undefined
+
 export function getPathToSource(
   source: SourceLocation,
   pathModifier?: PathModifier,
@@ -75,21 +78,102 @@ export function getDevServerOpenUrl(
   }
 }
 
+export function getViteProjectRootFromSource(
+  transformedSource: string,
+  modulePath: string,
+): string | undefined {
+  const normalizedModulePath = modulePath
+    .replace(/\\/g, '/')
+    .replace(/^\.?\//, '')
+  if (!normalizedModulePath) return
+
+  const fileNamePattern = /\b_jsxFileName\s*=\s*("(?:\\.|[^"\\])*")/g
+  for (const match of transformedSource.matchAll(fileNamePattern)) {
+    try {
+      const fileName = JSON.parse(match[1] ?? '') as unknown
+      if (typeof fileName !== 'string') continue
+
+      const normalizedFileName = fileName.replace(/\\/g, '/')
+      const suffix = `/${normalizedModulePath}`
+      if (normalizedFileName.endsWith(suffix)) {
+        return normalizedFileName.slice(0, -suffix.length)
+      }
+    } catch {
+      // Keep looking if a transform emitted an invalid string literal.
+    }
+  }
+}
+
+export function warmProjectRootDetection(): void {
+  if (
+    detectedProjectRoot ||
+    projectRootDetection ||
+    typeof document === 'undefined' ||
+    typeof window === 'undefined'
+  ) {
+    return
+  }
+
+  try {
+    const scripts = Array.from(document.scripts, (script) => script.src).filter(
+      Boolean,
+    )
+    const viteClient = scripts.find((scriptUrl) =>
+      new URL(scriptUrl, window.location.href).pathname.endsWith('/@vite/client'),
+    )
+    if (!viteClient) return
+
+    const clientUrl = new URL(viteClient, window.location.href)
+    const basePath = clientUrl.pathname.slice(0, -'@vite/client'.length)
+    const entryUrl = scripts
+      .map((scriptUrl) => new URL(scriptUrl, window.location.href))
+      .find(
+        (scriptUrl) =>
+          scriptUrl.origin === clientUrl.origin &&
+          scriptUrl.pathname.startsWith(basePath) &&
+          !scriptUrl.pathname.includes('/@vite/'),
+      )
+    if (!entryUrl) return
+
+    const modulePath = decodeURIComponent(entryUrl.pathname.slice(basePath.length))
+    projectRootDetection = window
+      .fetch(entryUrl)
+      .then((response) => (response.ok ? response.text() : ''))
+      .then((source) => {
+        detectedProjectRoot = getViteProjectRootFromSource(source, modulePath)
+      })
+      .catch(() => undefined)
+      .then(() => undefined)
+  } catch {
+    projectRootDetection = undefined
+  }
+}
+
 export function openSourceInEditor(
   source: SourceLocation,
   pathToSource: string,
   editor: string,
   useDevServer: boolean,
 ): void {
+  const directPath =
+    useDevServer && detectedProjectRoot && source.projectRelative
+      ? getPathToSourceSafely(source, undefined, detectedProjectRoot) ??
+        pathToSource
+      : pathToSource
   const fallback = () => {
     try {
-      window.location.assign(getUrl(editor, pathToSource))
+      window.location.assign(getUrl(editor, directPath))
     } catch {
       // Invalid custom editor URLs should not escape into the host app.
     }
   }
 
   if (!useDevServer) {
+    fallback()
+    return
+  }
+
+  if (directPath !== pathToSource) {
     fallback()
     return
   }
