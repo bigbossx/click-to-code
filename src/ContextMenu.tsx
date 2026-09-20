@@ -1,8 +1,17 @@
-import { useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
 import { createPortal } from 'react-dom'
 
 import { getReactInstancesForElement, getSourceForInstance } from './reactFiber'
-import { openSourceInEditor } from './sourceNavigation'
+import {
+  openSourceInEditor,
+  resolveApplicationSource,
+} from './sourceNavigation'
 import type { Editor, PathModifier } from './types'
 import { getDisplayNameForInstance, getPropsForInstance } from './utils'
 
@@ -24,7 +33,7 @@ export function ContextMenu({
   onClose,
 }: ContextMenuProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
-  const items = useMemo(
+  const unresolvedItems = useMemo(
     () =>
       getReactInstancesForElement(target).flatMap((fiber) => {
         try {
@@ -45,6 +54,31 @@ export function ContextMenu({
       }),
     [target],
   )
+  const [items, setItems] = useState(unresolvedItems)
+
+  useEffect(() => {
+    let cancelled = false
+    setItems(unresolvedItems)
+
+    void Promise.all(
+      unresolvedItems.map(async (item) => {
+        try {
+          const source = await resolveApplicationSource(item.source)
+          return source ? { ...item, source } : undefined
+        } catch {
+          return
+        }
+      }),
+    ).then((resolvedItems) => {
+      if (!cancelled) {
+        setItems(resolvedItems.filter((item) => item !== undefined))
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [unresolvedItems])
 
   useEffect(() => {
     dialogRef.current?.focus()
@@ -89,7 +123,12 @@ export function ContextMenu({
               onClick={(event: ReactMouseEvent<HTMLButtonElement>) => {
                 event.preventDefault()
                 try {
-                  openSourceInEditor(source, editor, pathModifier, projectRoot)
+                  openSourceInEditor(
+                    items.slice(index).map((item) => item.source),
+                    editor,
+                    pathModifier,
+                    projectRoot,
+                  )
                 } catch {
                   // Invalid custom editor URLs should not escape into the host app.
                 } finally {
@@ -109,7 +148,7 @@ export function ContextMenu({
                 {'>'}
               </code>
               <cite>
-                {source.fileName.replace(/.*\/(src|app|pages)\//, '$1/')}
+                {getDisplayPath(source.fileName, projectRoot)}
                 <data>{`${source.lineNumber}:${source.columnNumber}`}</data>
               </cite>
             </button>
@@ -119,4 +158,14 @@ export function ContextMenu({
     </div>,
     document.body,
   )
+}
+
+function getDisplayPath(fileName: string, projectRoot?: string): string {
+  const normalizedFile = fileName.replace(/\\/g, '/')
+  const normalizedRoot = projectRoot?.replace(/\\/g, '/').replace(/\/+$/, '')
+  if (normalizedRoot && normalizedFile.startsWith(`${normalizedRoot}/`)) {
+    return normalizedFile.slice(normalizedRoot.length + 1)
+  }
+
+  return normalizedFile.replace(/.*\/(src|app|pages)\//, '$1/')
 }

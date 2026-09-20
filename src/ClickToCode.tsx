@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { ContextMenu } from './ContextMenu'
-import { getSourceForElement } from './reactFiber'
+import {
+  getReactInstancesForElement,
+  getSourceForInstance,
+} from './reactFiber'
 import { openSourceInEditor } from './sourceNavigation'
 import type { ClickToCodeProps } from './types'
 
@@ -38,12 +41,17 @@ export function ClickToCode({
       if (!(event.target instanceof Element)) return
 
       try {
-        const source = getSourceForElement(event.target)
-        if (!source) return
+        const sources = getReactInstancesForElement(event.target).flatMap(
+          (fiber) => {
+            const source = getSourceForInstance(fiber)
+            return source ? [source] : []
+          },
+        )
+        if (sources.length === 0) return
 
         event.preventDefault()
         event.stopPropagation()
-        openSourceInEditor(source, editor, pathModifier, projectRoot)
+        openSourceInEditor(sources, editor, pathModifier, projectRoot)
       } catch {
         // Keep failures in private React data or editor navigation local.
       } finally {

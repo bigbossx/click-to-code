@@ -6,25 +6,48 @@ import type { Editor, PathModifier, SourceLocation } from './types'
 import { getPathToSourceSafely, getUrl } from './utils'
 
 export function openSourceInEditor(
-  source: SourceLocation,
+  source: SourceLocation | readonly SourceLocation[],
   editor: Editor,
   pathModifier?: PathModifier,
   projectRoot?: string,
 ): void {
-  if (!sourceLocationNeedsResolution(source)) {
-    openResolvedSource(source, editor, pathModifier, projectRoot)
-    return
-  }
+  const sources = Array.isArray(source) ? source : [source]
 
-  void resolveSourceLocation(source)
-    .then((resolvedSource) => {
-      if (resolvedSource) {
-        openResolvedSource(resolvedSource, editor, pathModifier, projectRoot)
-      }
-    })
+  void openFirstApplicationSource(sources, editor, pathModifier, projectRoot)
     .catch(() => {
       // Source-map failures must not escape into the host application.
     })
+}
+
+async function openFirstApplicationSource(
+  sources: readonly SourceLocation[],
+  editor: Editor,
+  pathModifier?: PathModifier,
+  projectRoot?: string,
+): Promise<void> {
+  for (const source of sources) {
+    const resolvedSource = await resolveApplicationSource(source)
+    if (!resolvedSource) continue
+
+    openResolvedSource(resolvedSource, editor, pathModifier, projectRoot)
+    return
+  }
+}
+
+export async function resolveApplicationSource(
+  source: SourceLocation,
+): Promise<SourceLocation | undefined> {
+  const resolvedSource = sourceLocationNeedsResolution(source)
+    ? await resolveSourceLocation(source)
+    : source
+
+  return resolvedSource && !isDependencySource(resolvedSource.fileName)
+    ? resolvedSource
+    : undefined
+}
+
+function isDependencySource(fileName: string): boolean {
+  return /(?:^|\/)node_modules\//.test(fileName.replace(/\\/g, '/'))
 }
 
 function openResolvedSource(

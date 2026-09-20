@@ -70,9 +70,64 @@ describe('getSourceForInstance', () => {
       columnNumber: 1,
     })
   })
+
+  it('falls back to the debug stack when a legacy source contains stack text', () => {
+    expect(
+      getSourceForInstance({
+        _debugSource: {
+          fileName:
+            'at https://admin.example.com/_next/static/chunks/0o24_next_116xctl._.js',
+          lineNumber: 211,
+          columnNumber: 33,
+        },
+        _debugStack: {
+          stack: [
+            'Error: react-stack-top-frame',
+            '    at https://admin.example.com/_next/static/chunks/0o24_next_116xctl._.js:211:33',
+            '    at LoginForm (https://admin.example.com/_next/static/chunks/_045cddz._.js:6338:420)',
+          ].join('\n'),
+        },
+      }),
+    ).toEqual({
+      fileName: '/_next/static/chunks/_045cddz._.js',
+      lineNumber: 6338,
+      columnNumber: 420,
+      projectRelative: true,
+    })
+  })
 })
 
 describe('parseDebugStack', () => {
+  it('skips an anonymous React top frame without treating "at" as a path', () => {
+    expect(
+      parseDebugStack(
+        [
+          'Error: react-stack-top-frame',
+          '    at https://admin.example.com/_next/static/chunks/0o24_next_116xctl._.js:211:33',
+          '    at LoginForm (https://admin.example.com/_next/static/chunks/_045cddz._.js:6338:420)',
+        ].join('\n'),
+      ),
+    ).toEqual({
+      fileName: '/_next/static/chunks/_045cddz._.js',
+      lineNumber: 6338,
+      columnNumber: 420,
+      projectRelative: true,
+    })
+  })
+
+  it('parses anonymous URL frames without retaining the stack prefix', () => {
+    expect(
+      parseDebugStack(
+        'Error\n    at https://example.com/src/App.tsx:7:4',
+      ),
+    ).toEqual({
+      fileName: '/src/App.tsx',
+      lineNumber: 7,
+      columnNumber: 4,
+      projectRelative: true,
+    })
+  })
+
   it('extracts React 19 Vite /@fs/ frames', () => {
     expect(
       parseDebugStack({
@@ -163,6 +218,151 @@ describe('parseDebugStack', () => {
           methodName: 'ExampleCard',
         },
       ],
+    })
+
+    vi.unstubAllGlobals()
+  })
+
+  it('falls back to the Next source-map endpoint for server chunks', async () => {
+    const source = parseDebugStack(
+      [
+        'Error: react-stack-top-frame',
+        '    at fakeJSXCallSite (http://localhost:3001/_next/static/chunks/react-server-dom.js:1981:16)',
+        '    at LoginPage (about://React/Server/file:///Users/me/project/.next/dev/server/chunks/ssr/%5Broot%5D.js?58:3760:488)',
+      ].join('\n'),
+    )
+    if (!source) throw new Error('Expected a parsed Next source')
+
+    const sourceMap = JSON.stringify({
+      version: 3,
+      names: [],
+      sources: ['file:///Users/me/project/app/sso/login/page.tsx'],
+      sourcesContent: ['export default function LoginPage() {}'],
+      mappings: `${';'.repeat(3759)}AAAA`,
+    })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ status: 'rejected', reason: 'unsupported' }],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () => sourceMap,
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('window', { location: { href: 'http://localhost:3001/' } })
+    vi.stubGlobal('document', {
+      scripts: [{ src: 'http://localhost:3001/_next/static/chunks/app.js' }],
+    })
+
+    await expect(resolveSourceLocation(source)).resolves.toEqual({
+      fileName: '/Users/me/project/app/sso/login/page.tsx',
+      lineNumber: 1,
+      columnNumber: 1,
+    })
+    expect(fetchMock.mock.calls[1]?.[0]).toContain(
+      '/__nextjs_source-map?filename=%2FUsers%2Fme%2Fproject%2F.next%2Fdev%2Fserver%2Fchunks%2Fssr%2F%5Broot%5D.js',
+    )
+
+    vi.unstubAllGlobals()
+  })
+
+  it('skips React JSX callsites and maps the application chunk', async () => {
+    const source = parseDebugStack(
+      [
+        'Error: react-stack-top-frame',
+        '    at exports.jsxDEV (http://localhost:3001/_next/static/chunks/react-runtime.js:211:33)',
+        '    at LarkLoginForm (http://localhost:3001/_next/static/chunks/app.js:4557:420)',
+      ].join('\n'),
+    )
+    expect(source).toEqual({
+      fileName: '/_next/static/chunks/app.js',
+      lineNumber: 4557,
+      columnNumber: 420,
+      projectRelative: true,
+    })
+    if (!source) throw new Error('Expected a parsed Next client source')
+
+    const map = btoa(
+      JSON.stringify({
+        version: 3,
+        names: [],
+        sources: [
+          'file:///Users/me/project/apps/admin/components/login-form.tsx',
+        ],
+        sourcesContent: ['export function LarkLoginForm() {}'],
+        mappings: `${';'.repeat(4556)}AAAA`,
+      }),
+    )
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ status: 'rejected', reason: 'unsupported' }],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          `compiled\n//# sourceMappingURL=data:application/json;base64,${map}`,
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('window', { location: { href: 'http://localhost:3001/' } })
+    vi.stubGlobal('document', {
+      scripts: [{ src: 'http://localhost:3001/_next/static/chunks/app.js' }],
+    })
+
+    await expect(resolveSourceLocation(source)).resolves.toEqual({
+      fileName: '/Users/me/project/apps/admin/components/login-form.tsx',
+      lineNumber: 1,
+      columnNumber: 1,
+    })
+
+    vi.unstubAllGlobals()
+  })
+
+  it('maps sectioned source maps emitted by Turbopack', async () => {
+    const source = parseDebugStack(
+      'Error\n    at App (http://localhost:3001/_next/static/chunks/sectioned.js:3:1)',
+    )
+    if (!source) throw new Error('Expected a parsed Next client source')
+
+    const sectionedMap = {
+      version: 3,
+      sections: [
+        {
+          offset: { line: 2, column: 0 },
+          map: {
+            version: 3,
+            names: [],
+            sources: ['file:///Users/me/project/app/page.tsx'],
+            sourcesContent: ['export default function Page() {}'],
+            mappings: 'AAAA',
+          },
+        },
+      ],
+    }
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ status: 'rejected', reason: 'unsupported' }],
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        text: async () =>
+          `compiled\n//# sourceMappingURL=data:application/json,${encodeURIComponent(JSON.stringify(sectionedMap))}`,
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('window', { location: { href: 'http://localhost:3001/' } })
+    vi.stubGlobal('document', {
+      scripts: [{ src: 'http://localhost:3001/_next/static/chunks/sectioned.js' }],
+    })
+
+    await expect(resolveSourceLocation(source)).resolves.toEqual({
+      fileName: '/Users/me/project/app/page.tsx',
+      lineNumber: 1,
+      columnNumber: 1,
     })
 
     vi.unstubAllGlobals()

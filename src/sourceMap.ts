@@ -1,10 +1,10 @@
-import { originalPositionFor, TraceMap } from '@jridgewell/trace-mapping'
+import { AnyMap, originalPositionFor } from '@jridgewell/trace-mapping'
 
 export interface SourceMapStackFrame {
   file: string
   lineNumber: number
   columnNumber: number
-  kind: 'module' | 'webpack'
+  kind: 'module' | 'next-server' | 'webpack'
 }
 
 export interface OriginalSourcePosition {
@@ -28,13 +28,17 @@ export async function resolveSourceMapStackFrame(
   frame: SourceMapStackFrame,
 ): Promise<OriginalSourcePosition | undefined> {
   try {
-    const payload =
-      frame.kind === 'webpack'
-        ? await loadWebpackSourceMap(frame.file)
-        : await loadModuleSourceMap(frame.file)
+    let payload: SourceMapPayload | undefined
+    if (frame.kind === 'webpack') {
+      payload = await loadWebpackSourceMap(frame.file)
+    } else if (frame.kind === 'next-server') {
+      payload = await loadNextServerSourceMap(frame.file)
+    } else {
+      payload = await loadModuleSourceMap(frame.file)
+    }
     if (!payload) return
 
-    const map = new TraceMap(payload.contents, payload.url)
+    const map = new AnyMap(payload.contents, payload.url)
     const original = originalPositionFor(map, {
       line: frame.lineNumber,
       column: Math.max(0, frame.columnNumber - 1),
@@ -122,6 +126,31 @@ async function loadModuleSourceMap(
 ): Promise<SourceMapPayload | undefined> {
   const source = await fetchText(moduleUrl)
   return source ? loadSourceMapFromText(source, moduleUrl) : undefined
+}
+
+async function loadNextServerSourceMap(
+  fileName: string,
+): Promise<SourceMapPayload | undefined> {
+  try {
+    const pageUrl = window.location.href
+    const script = Array.from(document.scripts, (item) => item.src).find(
+      (source) => new URL(source, pageUrl).pathname.includes('/_next/'),
+    )
+    const scriptUrl = new URL(script || pageUrl, pageUrl)
+    const basePath = script
+      ? scriptUrl.pathname.split('/_next/', 1)[0]
+      : ''
+    const endpoint = new URL(
+      `${basePath}/__nextjs_source-map`,
+      scriptUrl.origin,
+    )
+    endpoint.searchParams.set('filename', fileName)
+
+    const contents = await fetchText(endpoint.href)
+    return contents ? { contents, url: endpoint.href } : undefined
+  } catch {
+    return
+  }
 }
 
 async function loadWebpackSourceMap(

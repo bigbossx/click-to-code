@@ -180,12 +180,28 @@ export function parseDebugStack(
   }
   if (typeof stackValue !== 'string') return
 
+  let skipReactTopFrame = stackValue
+    .trimStart()
+    .startsWith('Error: react-stack-top-frame')
+
   for (const line of stackValue.split('\n')) {
-    const match = line.trim().match(/(?:at\s+.*?\s+\()?(.+?):(\d+):(\d+)\)?$/)
+    const match = parseStackLine(line)
     if (!match) continue
 
-    const [, rawFileName, rawLine, rawColumn] = match
-    if (!rawFileName || isReactInternalFrame(rawFileName)) continue
+    if (skipReactTopFrame) {
+      skipReactTopFrame = false
+      continue
+    }
+
+    const { rawFileName, rawLine, rawColumn } = match
+    const methodName = getStackMethodName(line)
+    if (
+      !rawFileName ||
+      isReactInternalFrame(rawFileName) ||
+      isReactInternalMethod(methodName)
+    ) {
+      continue
+    }
 
     let normalizedFile: NormalizedStackFile | undefined
     try {
@@ -207,7 +223,7 @@ export function parseDebugStack(
         file: normalizedFile.nextFrame.file,
         line1: source.lineNumber,
         column1: source.columnNumber,
-        methodName: getStackMethodName(line),
+        methodName,
         isServer: normalizedFile.nextFrame.isServer,
       })
     }
@@ -223,6 +239,26 @@ export function parseDebugStack(
   }
 }
 
+interface ParsedStackLine {
+  rawFileName: string
+  rawLine: string
+  rawColumn: string
+}
+
+function parseStackLine(line: string): ParsedStackLine | undefined {
+  const trimmed = line.trim()
+  const match =
+    trimmed.match(/^at\s+.+?\s+\((.+):(\d+):(\d+)\)$/) ??
+    trimmed.match(/^at\s+(.+):(\d+):(\d+)$/) ??
+    trimmed.match(/^(.+):(\d+):(\d+)$/)
+  if (!match) return
+
+  const [, rawFileName, rawLine, rawColumn] = match
+  if (!rawFileName || !rawLine || !rawColumn) return
+
+  return { rawFileName, rawLine, rawColumn }
+}
+
 export function resolveSourceLocation(
   source: SourceLocation,
 ): Promise<SourceLocation | undefined> {
@@ -234,8 +270,12 @@ export function resolveSourceLocation(
   if (cached) return cached
 
   const resolution = resolveNextSource(frame).then((resolved) => {
-    if (!resolved) nextSourceCache.delete(cacheKey)
-    return resolved
+    if (resolved && !isNextGeneratedSource(resolved.fileName)) return resolved
+
+    return resolveBundlerSource(source).then((fallback) => {
+      if (fallback === source) nextSourceCache.delete(cacheKey)
+      return fallback
+    })
   })
   nextSourceCache.set(cacheKey, resolution)
   return resolution
@@ -350,7 +390,13 @@ function getNextStackFrameEndpoint(): string {
 function normalizeSource(
   source?: Partial<SourceLocation> | null,
 ): SourceLocation | undefined {
-  if (typeof source?.fileName !== 'string' || !source.fileName) return
+  if (
+    typeof source?.fileName !== 'string' ||
+    !source.fileName ||
+    /^\s*at\s+/.test(source.fileName)
+  ) {
+    return
+  }
 
   return {
     fileName: source.fileName,
@@ -383,10 +429,12 @@ function normalizeStackFileName(
     fileName = fileName.slice('file://'.length)
   } else if (fileName.startsWith('about://React/Server/file://')) {
     fileName = fileName.slice('about://React/Server/file://'.length)
+    const sourceFileName = fileName.replace(/[?#].*$/, '')
     return {
-      fileName: fileName.replace(/[?#].*$/, ''),
+      fileName: sourceFileName,
       projectRelative: false,
       nextFrame: { file: stackFileName, isServer: true },
+      sourceMapFrame: { file: sourceFileName, kind: 'next-server' },
     }
   } else if (/^https?:\/\//.test(fileName)) {
     const url = new URL(fileName)
@@ -398,6 +446,7 @@ function normalizeStackFileName(
         fileName: fileName.replace(/[?#].*$/, ''),
         projectRelative,
         nextFrame: { file: stackFileName, isServer: false },
+        sourceMapFrame: { file: stackFileName, kind: 'module' },
       }
     }
     return {
@@ -445,6 +494,21 @@ function isReactInternalFrame(fileName: string): boolean {
     fileName.includes('/node_modules_next_dist_') ||
     fileName.includes('/node_modules/next/dist/') ||
     fileName.includes('react_stack_bottom_frame')
+  )
+}
+
+function isReactInternalMethod(methodName: string): boolean {
+  return (
+    methodName === 'fakeJSXCallSite' ||
+    /(?:^|\.)jsxDEV(?:Impl)?$/.test(methodName)
+  )
+}
+
+function isNextGeneratedSource(fileName: string): boolean {
+  return (
+    fileName.startsWith('.next/') ||
+    fileName.includes('/.next/') ||
+    fileName.includes('/_next/static/chunks/')
   )
 }
 
