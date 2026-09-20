@@ -1,32 +1,15 @@
-import type { ReactFiber, SourceLocation } from './types'
+import { registerMappedSource } from './adapters/mappedSource'
+import { registerNextSource } from './adapters/next'
 import {
-  resolveSourceMapStackFrame,
-  type SourceMapStackFrame,
-} from './sourceMap'
+  resolveSourceLocation,
+  sourceLocationNeedsResolution,
+} from './adapters/sourceResolver'
+import type { NormalizedStackFile } from './adapters/types'
+import { normalizePosition } from './sourceLocation'
+import { normalizeStackFileName } from './sourcePath'
+import type { ReactFiber, SourceLocation } from './types'
 
-interface NextStackFrame {
-  file: string
-  line1: number
-  column1: number
-  methodName: string
-  isServer: boolean
-}
-
-interface NextOriginalStackFrameResponse {
-  status?: unknown
-  value?: {
-    originalStackFrame?: {
-      file?: unknown
-      line1?: unknown
-      column1?: unknown
-    } | null
-  }
-}
-
-const nextStackFrames = new WeakMap<SourceLocation, NextStackFrame>()
-const nextSourceCache = new Map<string, Promise<SourceLocation | undefined>>()
-const sourceMapStackFrames = new WeakMap<SourceLocation, SourceMapStackFrame>()
-const sourceMapPositionCache = new Map<string, Promise<SourceLocation>>()
+export { resolveSourceLocation, sourceLocationNeedsResolution }
 
 type DevToolsRenderer = {
   findFiberByHostInstance?: (element: Element) => ReactFiber | null
@@ -219,7 +202,7 @@ export function parseDebugStack(
     }
 
     if (normalizedFile.nextFrame) {
-      nextStackFrames.set(source, {
+      registerNextSource(source, {
         file: normalizedFile.nextFrame.file,
         line1: source.lineNumber,
         column1: source.columnNumber,
@@ -228,7 +211,7 @@ export function parseDebugStack(
       })
     }
     if (normalizedFile.sourceMapFrame) {
-      sourceMapStackFrames.set(source, {
+      registerMappedSource(source, {
         ...normalizedFile.sourceMapFrame,
         lineNumber: source.lineNumber,
         columnNumber: source.columnNumber,
@@ -259,134 +242,6 @@ function parseStackLine(line: string): ParsedStackLine | undefined {
   return { rawFileName, rawLine, rawColumn }
 }
 
-export function resolveSourceLocation(
-  source: SourceLocation,
-): Promise<SourceLocation | undefined> {
-  const frame = nextStackFrames.get(source)
-  if (!frame) return resolveBundlerSource(source)
-
-  const cacheKey = `${frame.file}:${frame.line1}:${frame.column1}:${frame.isServer}`
-  const cached = nextSourceCache.get(cacheKey)
-  if (cached) return cached
-
-  const resolution = resolveNextSource(frame).then((resolved) => {
-    if (resolved && !isNextGeneratedSource(resolved.fileName)) return resolved
-
-    return resolveBundlerSource(source).then((fallback) => {
-      if (fallback === source) nextSourceCache.delete(cacheKey)
-      return fallback
-    })
-  })
-  nextSourceCache.set(cacheKey, resolution)
-  return resolution
-}
-
-export function sourceLocationNeedsResolution(source: SourceLocation): boolean {
-  return nextStackFrames.has(source) || sourceMapStackFrames.has(source)
-}
-
-function resolveBundlerSource(source: SourceLocation): Promise<SourceLocation> {
-  const frame = sourceMapStackFrames.get(source)
-  if (!frame) return Promise.resolve(source)
-
-  const cacheKey = `${frame.kind}:${frame.file}:${frame.lineNumber}:${frame.columnNumber}`
-  const cached = sourceMapPositionCache.get(cacheKey)
-  if (cached) return cached
-
-  const resolution = resolveSourceMapStackFrame(frame).then((original) => {
-    try {
-      if (!original) {
-        sourceMapPositionCache.delete(cacheKey)
-        return source
-      }
-
-      const normalized = normalizeStackFileName(original.source)
-      if (!normalized) {
-        sourceMapPositionCache.delete(cacheKey)
-        return source
-      }
-
-      const projectRelative =
-        normalized.projectRelative ||
-        (source.projectRelative && normalized.fileName === source.fileName)
-
-      return {
-        fileName: normalized.fileName,
-        lineNumber: normalizePosition(original.lineNumber),
-        columnNumber: normalizePosition(original.columnNumber),
-        ...(projectRelative ? { projectRelative: true } : {}),
-      }
-    } catch {
-      sourceMapPositionCache.delete(cacheKey)
-      return source
-    }
-  })
-  sourceMapPositionCache.set(cacheKey, resolution)
-  return resolution
-}
-
-async function resolveNextSource(
-  frame: NextStackFrame,
-): Promise<SourceLocation | undefined> {
-  try {
-    const response = await fetch(getNextStackFrameEndpoint(), {
-      method: 'POST',
-      body: JSON.stringify({
-        frames: [{ ...frame, arguments: [] }],
-        isServer: frame.isServer,
-        isEdgeServer: false,
-        isAppDirectory: true,
-      }),
-    })
-    if (!response.ok) return
-
-    const body = (await response.json()) as unknown
-    if (!Array.isArray(body)) return
-
-    const result = body[0] as NextOriginalStackFrameResponse | undefined
-    const original = result?.status === 'fulfilled'
-      ? result.value?.originalStackFrame
-      : undefined
-    if (
-      typeof original?.file !== 'string' ||
-      !original.file ||
-      typeof original.line1 !== 'number'
-    ) {
-      return
-    }
-
-    const fileName = original.file.startsWith('file://')
-      ? original.file.slice('file://'.length)
-      : original.file
-    const projectRelative = !isAbsoluteFilePath(fileName)
-
-    return {
-      fileName,
-      lineNumber: normalizePosition(original.line1),
-      columnNumber: normalizePosition(original.column1),
-      ...(projectRelative ? { projectRelative: true } : {}),
-    }
-  } catch {
-    return
-  }
-}
-
-function getNextStackFrameEndpoint(): string {
-  try {
-    const pageUrl = window.location.href
-    const script = Array.from(document.scripts, (item) => item.src).find(
-      (source) => new URL(source, pageUrl).pathname.includes('/_next/'),
-    )
-    if (!script) return '/__nextjs_original-stack-frames'
-
-    const scriptUrl = new URL(script, pageUrl)
-    const basePath = scriptUrl.pathname.split('/_next/', 1)[0]
-    return `${scriptUrl.origin}${basePath}/__nextjs_original-stack-frames`
-  } catch {
-    return '/__nextjs_original-stack-frames'
-  }
-}
-
 function normalizeSource(
   source?: Partial<SourceLocation> | null,
 ): SourceLocation | undefined {
@@ -403,85 +258,6 @@ function normalizeSource(
     lineNumber: normalizePosition(source.lineNumber),
     columnNumber: normalizePosition(source.columnNumber),
   }
-}
-
-interface NormalizedStackFile {
-  fileName: string
-  projectRelative: boolean
-  nextFrame?: { file: string; isServer: boolean }
-  sourceMapFrame?: Pick<SourceMapStackFrame, 'file' | 'kind'>
-}
-
-function normalizeStackFileName(
-  rawFileName: string,
-): NormalizedStackFile | undefined {
-  let fileName = rawFileName.replace(/^\(/, '')
-  const stackFileName = fileName
-  let projectRelative = false
-
-  try {
-    fileName = decodeURIComponent(fileName)
-  } catch {
-    // Keep malformed URLs usable instead of failing the whole interaction.
-  }
-
-  if (fileName.startsWith('file://')) {
-    fileName = fileName.slice('file://'.length)
-  } else if (fileName.startsWith('about://React/Server/file://')) {
-    fileName = fileName.slice('about://React/Server/file://'.length)
-    const sourceFileName = fileName.replace(/[?#].*$/, '')
-    return {
-      fileName: sourceFileName,
-      projectRelative: false,
-      nextFrame: { file: stackFileName, isServer: true },
-      sourceMapFrame: { file: sourceFileName, kind: 'next-server' },
-    }
-  } else if (/^https?:\/\//.test(fileName)) {
-    const url = new URL(fileName)
-    const isFileSystemPath = url.pathname.startsWith('/@fs/')
-    fileName = url.pathname.replace(/^\/@fs\//, '/')
-    projectRelative = !isFileSystemPath
-    if (url.pathname.includes('/_next/static/chunks/')) {
-      return {
-        fileName: fileName.replace(/[?#].*$/, ''),
-        projectRelative,
-        nextFrame: { file: stackFileName, isServer: false },
-        sourceMapFrame: { file: stackFileName, kind: 'module' },
-      }
-    }
-    return {
-      fileName: fileName.replace(/[?#].*$/, ''),
-      projectRelative,
-      sourceMapFrame: { file: stackFileName, kind: 'module' },
-    }
-  } else if (fileName.startsWith('webpack-internal://')) {
-    fileName = fileName
-      .replace(/^webpack-internal:\/\/\/(?:\([^)]*\)\/)?/, '')
-      .replace(/^\.\//, '')
-    projectRelative = true
-    return {
-      fileName: fileName.replace(/[?#].*$/, ''),
-      projectRelative,
-      sourceMapFrame: { file: stackFileName, kind: 'webpack' },
-    }
-  } else if (fileName.startsWith('webpack://')) {
-    fileName = fileName
-      .replace(/^webpack:\/\/[^/]*\//, '')
-      .replace(/^\.\//, '')
-    projectRelative = true
-    return {
-      fileName: fileName.replace(/[?#].*$/, ''),
-      projectRelative,
-      sourceMapFrame: { file: stackFileName, kind: 'webpack' },
-    }
-  } else if (!isAbsoluteFilePath(fileName)) {
-    projectRelative = true
-  }
-
-  fileName = fileName.replace(/[?#].*$/, '')
-  return fileName && fileName !== '<anonymous>'
-    ? { fileName, projectRelative }
-    : undefined
 }
 
 function isReactInternalFrame(fileName: string): boolean {
@@ -504,26 +280,8 @@ function isReactInternalMethod(methodName: string): boolean {
   )
 }
 
-function isNextGeneratedSource(fileName: string): boolean {
-  return (
-    fileName.startsWith('.next/') ||
-    fileName.includes('/.next/') ||
-    fileName.includes('/_next/static/chunks/')
-  )
-}
-
 function getStackMethodName(line: string): string {
   return line.trim().match(/^at\s+(.+?)\s+\(/)?.[1] ?? '<unknown>'
-}
-
-function isAbsoluteFilePath(fileName: string): boolean {
-  return fileName.startsWith('/') || /^[A-Za-z]:[\\/]/.test(fileName)
-}
-
-function normalizePosition(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? value
-    : 1
 }
 
 function isFiber(value: unknown): value is ReactFiber {
