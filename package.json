@@ -1,6 +1,6 @@
 {
   "name": "click-to-code",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "packageManager": "pnpm@12.3.4",
   "description": "Option+Click a React component to open its source in your editor",
   "type": "module",
